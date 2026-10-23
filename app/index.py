@@ -45,11 +45,6 @@ TYPES = {
     "module": "Module tico (émulateur)",
 }
 
-# Dossiers où tico refuse qu'un dépôt communautaire écrive
-# (« This package tries to write outside the folders a community package may use »).
-PROTECTED_PREFIXES = (
-    "atmosphere", "bootloader", "switch/tico", "tico/modules", "tico/store", "tico/system",
-)
 
 
 def absolute(base_url: str, value: str) -> str:
@@ -106,6 +101,10 @@ def build_package(base_url: str, pkg: dict[str, Any], download_url: str | None =
         entry["screenshots"] = [absolute(base_url, s) for s in pkg["screenshots"]]
     if pkg["featured"]:
         entry["featured"] = True
+    if pkg.get("console"):
+        # Console du jeu (slug tico : gba, snes, nds…). Le nom exact du champ
+        # attendu par tico n'est pas confirmé : il est ignoré s'il ne le connaît pas.
+        entry["console"] = pkg["console"]
 
     if pkg["source"] == "magnet":
         entry["magnet"] = pkg["magnet"]
@@ -164,6 +163,25 @@ def build_index(
     return index
 
 
+def allowed_root(pkg: dict[str, Any]) -> str:
+    """Dossier où tico (0.8) accepte qu'un dépôt communautaire installe ce paquet.
+
+    Relevé dans tico.nro : en dehors, l'installation échoue avec « Ce paquet
+    tente d'écrire hors des dossiers autorisés pour les paquets de la communauté ».
+    """
+    if pkg["type"] == "module":
+        return f"tico/modules/{pkg['id']}"
+    if pkg["type"] == "rom":
+        return "tico/roms"
+    if pkg["category"] == "soundpack":
+        return f"tico/theme/soundpacks/{pkg['id']}"
+    if pkg["category"] == "consolepack":
+        return f"tico/theme/consolepacks/{pkg['id']}"
+    if pkg["category"] == "port":
+        return "tico/ports"
+    return f"switch/{pkg['id']}"
+
+
 def validate_package(pkg: dict[str, Any]) -> list[str]:
     """Problèmes qui empêcheraient tico d'installer le paquet."""
     problems = []
@@ -178,11 +196,14 @@ def validate_package(pkg: dict[str, Any]) -> list[str]:
     install = (pkg["install"] or "").strip("/")
     if ".." in install.split("/"):
         problems.append("Le dossier d'installation ne peut pas contenir « .. ».")
-    if pkg["type"] != "module" and install.lower().startswith(PROTECTED_PREFIXES):
+    root = allowed_root(pkg)
+    if install and install != root and not install.startswith(root + "/"):
         problems.append(
-            f"« {install} » est un dossier protégé : tico refusera l'installation "
-            "depuis un dépôt communautaire."
+            f"« {install} » est hors du dossier autorisé pour ce type de paquet ({root}) : "
+            "tico refusera l'installation. Laissez le champ vide, tico choisira le bon dossier."
         )
+    if pkg["category"] == "game" and pkg["type"] == "zip":
+        problems.append("Pour un jeu, choisissez le type « ROM / jeu » : tico le rangera dans Jeux.")
     if pkg["type"] == "module" and pkg["category"] != "emulator":
         problems.append("Un module tico devrait être dans la catégorie « emulator ».")
     return problems

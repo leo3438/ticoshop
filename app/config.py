@@ -31,6 +31,10 @@ class Settings:
         self.github_token = os.environ.get("TICOSHOP_GITHUB_TOKEN", "")
         self.github_sync_hours = _int("TICOSHOP_GITHUB_SYNC_HOURS", 6)
 
+        # Jaquettes automatiques (libretro-thumbnails) à l'envoi d'une ROM.
+        self.auto_covers = os.environ.get("TICOSHOP_AUTO_COVERS", "1") not in ("0", "false", "no")
+        self.covers_url = os.environ.get("TICOSHOP_COVERS_URL", "https://thumbnails.libretro.com").rstrip("/")
+
         # Notification (Discord ou JSON générique) à chaque nouveauté.
         self.webhook_url = os.environ.get("TICOSHOP_WEBHOOK_URL", "")
 

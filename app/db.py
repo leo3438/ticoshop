@@ -83,6 +83,9 @@ MIGRATIONS = [
         PRIMARY KEY (day, kind, key)
     );
     """,
+    """
+    ALTER TABLE packages ADD COLUMN console TEXT NOT NULL DEFAULT '';
+    """,
 ]
 
 JSON_FIELDS = {"tags": list, "screenshots": list, "extra": dict}
@@ -105,7 +108,7 @@ EDITABLE = [
     "description", "changelog", "icon", "banner", "screenshots", "featured",
     "published", "source", "url", "magnet", "torrent_file", "filename",
     "sha256", "size", "install", "extract", "extract_to_folder", "extra",
-    "github_repo", "github_asset", "auto_update",
+    "github_repo", "github_asset", "auto_update", "console",
 ]
 # Champs système, modifiables seulement par le code.
 INTERNAL = ["local_file", "last_sync", "sync_error"]

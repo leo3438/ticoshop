@@ -38,6 +38,12 @@
           </select>
         </label>
       </div>
+      <label>Console (jeux / ROM)
+        <select name="console">
+          <option value="">— détection automatique d'après l'extension —</option>
+          {% for k, v in CONSOLES.items() %}<option value="{{ k }}" {% if p.console == k %}selected{% endif %}>{{ v[0] }}</option>{% endfor %}
+        </select>
+      </label>
       <label>Accroche <input name="tagline" value="{{ p.tagline or '' }}" maxlength="120"></label>
       <label>Tags (séparés par des virgules) <input name="tags" value="{{ (p.tags or [])|join(', ') }}"></label>
       <label>Description <textarea name="description" rows="5">{{ p.description or '' }}</textarea></label>
@@ -96,8 +102,11 @@
     <fieldset>
       <legend>Installation sur la Switch</legend>
       <label>Dossier d'installation (relatif à la racine de la SD)
-        <input name="install" value="{{ p.install or '' }}" placeholder="switch/mon-homebrew  ·  tico/roms/gba  ·  tico/theme/soundpacks">
-        <small>Vide = dossier par défaut de tico pour ce type. tico refuse <code>atmosphere</code>, <code>bootloader</code>, <code>switch/tico</code>, <code>tico/modules</code> pour un dépôt communautaire (sauf modules).</small>
+        <input name="install" value="{{ p.install or '' }}" placeholder="vide (recommandé)">
+        <small><strong>Laissez vide</strong> : tico choisit le bon dossier. Pour un dépôt communautaire, tico n'accepte que
+          <code>switch/&lt;id&gt;</code> (apps), <code>tico/roms/…</code> (type ROM), <code>tico/ports/…</code> (ports),
+          <code>tico/theme/soundpacks/&lt;id&gt;</code>, <code>tico/theme/consolepacks/&lt;id&gt;</code> et
+          <code>tico/modules/&lt;id&gt;</code> (modules).</small>
       </label>
       <div class="checks">
         <label class="check"><input type="checkbox" name="extract" {% if p.extract %}checked{% endif %}> Extraire l'archive</label>
@@ -107,6 +116,19 @@
 
     <fieldset>
       <legend>Visuels</legend>
+      {% if pkg %}
+      <div class="cover-search">
+        <strong>Jaquette automatique</strong>
+        <span class="muted small">Cherche jaquette, écran titre et capture dans la base libretro (celle de tico) d'après le nom No-Intro / Redump du jeu.</span>
+        <div class="row">
+          <input name="cover_name" form="covers-form" placeholder="{{ p.filename.rsplit('.', 1)[0] if p.filename else p.name }}">
+          <div class="checks">
+            <label class="check"><input type="checkbox" name="force" form="covers-form"> Remplacer les images existantes</label>
+            <button class="btn" form="covers-form">Chercher la jaquette</button>
+          </div>
+        </div>
+      </div>
+      {% endif %}
       <div class="row">
         <div class="field"><span>Icône (carrée)</span>
           {% if p.icon %}<img class="thumb" src="{{ p.icon }}" alt=""><label class="check"><input type="checkbox" name="icon_remove"> supprimer</label>{% endif %}
@@ -136,6 +158,10 @@
   </form>
 
   {% if pkg %}
+  <form id="covers-form" method="post" action="/admin/packages/{{ pkg.id }}/covers">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="console" value="{{ pkg.console }}">
+  </form>
   <form id="sync-form" method="post" action="/admin/packages/{{ pkg.id }}/sync">
     <input type="hidden" name="csrf" value="{{ csrf }}">
   </form>

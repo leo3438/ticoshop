@@ -124,7 +124,7 @@ def register(app: FastAPI, ctx: Context) -> None:
         values: dict[str, Any] = {
             k: str(form.get(k, "")).strip()
             for k in ("name", "version", "author", "category", "type", "tagline", "source", "url",
-                      "magnet", "torrent_file", "install", "sha256", "github_repo", "github_asset")
+                      "magnet", "torrent_file", "install", "sha256", "github_repo", "github_asset", "console")
         }
         values["description"] = str(form.get("description", ""))
         values["changelog"] = str(form.get("changelog", ""))
@@ -193,6 +193,24 @@ def register(app: FastAPI, ctx: Context) -> None:
             request.session["flash"] = f"GitHub : {msg}."
         except github.SyncError as e:
             request.session["flash"] = f"GitHub : échec, {e}."
+        return RedirectResponse(f"/admin/packages/{pkg_id}", 303)
+
+    @app.post("/admin/packages/{pkg_id}/covers", include_in_schema=False, dependencies=admin)
+    async def find_covers(request: Request, pkg_id: str, csrf: str = Form(""), cover_name: str = Form(""),
+                          console: str = Form(""), force: str = Form("")):
+        ctx.check_csrf(request, csrf)
+        try:
+            res = await ctx.apply_covers(pkg_id, name=cover_name.strip(), console=console, force=bool(force))
+        except HTTPException as e:
+            request.session["flash"] = str(e.detail)
+            return RedirectResponse(f"/admin/packages/{pkg_id}", 303)
+        if res["found"] and res["added"]:
+            request.session["flash"] = f"Images trouvées pour « {res['found']} » : {', '.join(res['added'])}."
+        elif res["found"]:
+            request.session["flash"] = f"Images trouvées pour « {res['found']} », mais le paquet en a déjà (cochez « Remplacer »)."
+        else:
+            request.session["flash"] = (f"Aucune jaquette trouvée pour « {res['tried']} ». Indiquez le nom exact "
+                                        "No-Intro / Redump du jeu, ex. « Super Mario World (USA) ».")
         return RedirectResponse(f"/admin/packages/{pkg_id}", 303)
 
     @app.post("/admin/packages/{pkg_id}/releases/{rid}/restore", include_in_schema=False, dependencies=admin)

@@ -114,7 +114,7 @@ def test_validation(client):
     })
     problems = client.get("/api/validate", headers=auth()).json()["bad"]
     assert any("http" in p for p in problems)
-    assert any("protégé" in p for p in problems)
+    assert any("hors du dossier autorisé" in p for p in problems)
     assert any("sha256" in p for p in problems)
 
 
@@ -425,3 +425,85 @@ def test_scheduler_runs_backup_and_sync(tmp_path, monkeypatch):
     asyncio.run(run())
     assert len(list((tmp_path / "backups").glob("ticoshop-*.tar.gz"))) == 1  # une seule : la suivante dans 1 h
     assert synced == [1]
+
+
+# --- jaquettes & dossiers autorisés -------------------------------------------
+def test_covers_auto_on_rom_upload(client, monkeypatch):
+    from app import covers
+
+    PNG_BOX, PNG_SNAP = PNG + b"box", PNG + b"snap"
+    asked = []
+
+    def fake_fetch(url, timeout=20, max_bytes=0):
+        asked.append(url)
+        if "Super%20Mario%20World%20%28USA%29.png" not in url:
+            return None
+        return PNG_BOX if "Named_Boxarts" in url else PNG_SNAP if "Named_Snaps" in url else None
+
+    monkeypatch.setattr(covers, "fetch", fake_fetch)
+    client.post("/api/packages", headers=auth(), json={"id": "smw", "category": "game", "type": "rom"})
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("Super Mario World (USA) [!].sfc", b"rom")
+    client.post("/api/packages/smw/file", headers=auth(), files={"file": ("smw.zip", buf.getvalue())})
+    pkg = client.get("/api/packages/smw", headers=auth()).json()
+    assert pkg["console"] == "snes"
+    assert pkg["icon"].startswith("/media/") and len(pkg["screenshots"]) == 1 and pkg["banner"] == ""
+    assert client.get(pkg["icon"]).content == PNG_BOX
+    assert asked[0].startswith("https://thumbnails.libretro.com/Nintendo%20-%20Super%20Nintendo%20Entertainment%20System/Named_Boxarts/")
+    entry = client.get("/index.json").json()["packages"][0]
+    assert entry["icon"].startswith("https://shop.test/media/") and entry["console"] == "snes"
+
+
+def test_covers_manual_and_not_found(client, monkeypatch):
+    from app import covers
+
+    monkeypatch.setattr(covers, "fetch", lambda url, **kw: None)
+    client.post("/api/packages", headers=auth(), json={"id": "g", "category": "game", "type": "rom"})
+    assert client.post("/api/packages/g/covers", headers=auth(), json={}).status_code == 400  # console inconnue
+    r = client.post("/api/packages/g/covers", headers=auth(), json={"console": "gba", "name": "Nope"}).json()
+    assert r["found"] == "" and r["tried"] == "Nope"
+    assert client.post("/api/packages/g/covers", headers=auth(), json={"console": "xbox"}).status_code == 400
+
+
+def test_cover_name_candidates():
+    from app.covers import candidates, guess_console
+
+    assert candidates("Zelda: Link's Awakening (USA, Europe) (Rev 2) [!]") == [
+        "Zelda_ Link's Awakening (USA, Europe) (Rev 2) [!]",
+        "Zelda_ Link's Awakening (USA, Europe) (Rev 2)",
+        "Zelda_ Link's Awakening (USA, Europe)",
+        "Zelda_ Link's Awakening",
+    ]
+    assert guess_console(".GBA") == "gba" and guess_console(".iso") == ""
+
+
+def test_install_root_validation(client):
+    def problems(**fields):
+        client.post("/api/packages", headers=auth(), json={"id": "v", **fields})
+        out = client.get("/api/packages/v", headers=auth()).json()["problems"]
+        client.delete("/api/packages/v", headers=auth())
+        return " ".join(out)
+
+    assert "hors du dossier autorisé" in problems(category="game", type="zip", install="tico/roms/nds")
+    assert "hors du dossier autorisé" not in problems(category="game", type="rom", install="tico/roms/nds")
+    assert "hors du dossier autorisé" not in problems(category="homebrew", type="nro", install="switch/v")
+    assert "hors du dossier autorisé" in problems(category="homebrew", type="nro", install="switch/autre")
+    assert "hors du dossier autorisé" not in problems(category="soundpack", install="")
+    assert "type « ROM / jeu »" in problems(category="game", type="zip")
+
+
+def test_covers_server_unreachable(client, monkeypatch):
+    import urllib.error
+    import urllib.request
+
+    def boom(*a, **kw):
+        raise urllib.error.URLError("Name or service not known")
+
+    monkeypatch.setattr(urllib.request, "urlopen", boom)
+    client.post("/api/packages", headers=auth(), json={"id": "u", "category": "game", "type": "rom"})
+    # l'envoi réussit même si les jaquettes sont injoignables
+    r = client.post("/api/packages/u/file", headers=auth(), files={"file": ("Game (USA).gba", b"rom")})
+    assert r.status_code == 200 and r.json()["console"] == "gba"
+    r = client.post("/api/packages/u/covers", headers=auth(), json={})
+    assert r.status_code == 502 and "injoignable" in r.json()["detail"]

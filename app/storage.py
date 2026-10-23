@@ -102,6 +102,12 @@ def save_image(media_dir: Path, filename: str, src: BinaryIO, max_bytes: int = 2
     return f"/media/{name}"
 
 
+def save_image_bytes(media_dir: Path, data: bytes, ext: str = ".png") -> str:
+    name = f"{uuid.uuid4().hex}{ext}"
+    (media_dir / name).write_bytes(data)
+    return f"/media/{name}"
+
+
 def delete_image(media_dir: Path, ref: str) -> None:
     if ref.startswith("/media/"):
         (media_dir / Path(ref).name).unlink(missing_ok=True)

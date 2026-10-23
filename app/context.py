@@ -9,7 +9,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from fastapi.templating import Jinja2Templates
 
-from . import notify, storage
+from . import covers, notify, storage
 from .config import Settings
 from .db import Database
 from .i18n import LANGS, pick_lang, translator
@@ -37,7 +37,8 @@ class Context:
         self.max_bytes = settings.max_upload_mb * 1024 * 1024
         self.limiter = LoginLimiter(settings.login_max_attempts, settings.login_window_minutes * 60)
         self.templates = Jinja2Templates(directory=APP_DIR / "templates")
-        self.templates.env.globals.update(CATEGORIES=CATEGORIES, TYPES=TYPES, SOURCES=SOURCES, LANGS=LANGS)
+        self.templates.env.globals.update(CATEGORIES=CATEGORIES, TYPES=TYPES, SOURCES=SOURCES, LANGS=LANGS,
+                                          CONSOLES=covers.CONSOLES)
         self.templates.env.filters["filesize"] = human_size
         if settings.webhook_url:
             self.db.listeners.append(self._notify)
@@ -131,12 +132,63 @@ class Context:
         except storage.UploadTooLarge:
             raise HTTPException(413, f"Fichier trop gros (max {self.settings.max_upload_mb} Mo).")
         self.db.set_local_file(pkg_id, rel, Path(rel).name, sha, size, values)
+        if self.settings.auto_covers:
+            await self.auto_covers(pkg_id)
         module = None
         if rel.lower().endswith(".zip"):
             module = await run_in_threadpool(storage.inspect_module, self.settings.files_dir / rel)
         if module:
             self.apply_module(pkg_id, module)
         return module
+
+    async def auto_covers(self, pkg_id: str) -> None:
+        """À l'envoi d'une ROM : devine la console et ajoute la jaquette si le paquet n'en a pas."""
+        pkg = self.get_or_404(pkg_id)
+        if pkg["type"] != "rom" and pkg["category"] != "game":
+            return
+        name, ext = covers.rom_name(pkg["filename"], self.settings.files_dir / pkg["local_file"])
+        console = pkg["console"] or covers.guess_console(ext)
+        if console and not pkg["console"]:
+            self.db.update_package(pkg_id, {"console": console})
+        if console and not pkg["icon"]:
+            try:
+                await self.apply_covers(pkg_id, name=name, console=console)
+            except HTTPException:
+                pass  # jaquette facultative : l'envoi du fichier ne doit pas échouer pour ça
+
+    async def apply_covers(self, pkg_id: str, name: str = "", console: str = "", force: bool = False) -> dict[str, Any]:
+        """Cherche les images libretro et les ajoute au paquet.
+
+        Renvoie {"found": nom trouvé ou "", "console", "tried": nom cherché, "added": [types]}.
+        """
+        pkg = self.get_or_404(pkg_id)
+        console = console or pkg["console"]
+        if not name and pkg["filename"]:
+            local = self.settings.files_dir / pkg["local_file"] if pkg["local_file"] else None
+            name = covers.rom_name(pkg["filename"], local)[0]
+        name = name or pkg["name"]
+        if console not in covers.CONSOLES:
+            raise HTTPException(400, "Choisissez la console du jeu pour chercher sa jaquette.")
+        try:
+            found, images = await run_in_threadpool(covers.find_covers, self.settings.covers_url, console, name)
+        except covers.CoverServerError as e:
+            raise HTTPException(502, f"Serveur de jaquettes injoignable ({self.settings.covers_url}) : {e}")
+        added = []
+        values: dict[str, Any] = {"console": console}
+        media = self.settings.media_dir
+        if "boxart" in images and (force or not pkg["icon"]):
+            storage.delete_image(media, pkg["icon"])
+            values["icon"] = storage.save_image_bytes(media, images["boxart"])
+            added.append("jaquette")
+        if "title" in images and (force or not pkg["banner"]):
+            storage.delete_image(media, pkg["banner"])
+            values["banner"] = storage.save_image_bytes(media, images["title"])
+            added.append("écran titre")
+        if "snap" in images and (force or not pkg["screenshots"]):
+            values["screenshots"] = [*pkg["screenshots"], storage.save_image_bytes(media, images["snap"])]
+            added.append("capture")
+        self.db.update_package(pkg_id, values)
+        return {"found": found, "console": console, "tried": name, "added": added}
 
     def apply_module(self, pkg_id: str, module: dict[str, Any]) -> None:
         pkg = self.get_or_404(pkg_id)

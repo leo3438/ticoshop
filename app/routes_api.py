@@ -6,7 +6,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 
-from . import backup, github, storage
+from . import backup, covers, github, storage
 from .context import SOURCES, Context
 from .index import CATEGORIES, TYPES, validate_package
 
@@ -20,6 +20,8 @@ def check_enums(values: dict[str, Any]) -> None:
         raise HTTPException(400, f"type doit être parmi : {', '.join(TYPES)}")
     if "source" in values and values["source"] not in SOURCES:
         raise HTTPException(400, f"source doit être parmi : {', '.join(SOURCES)}")
+    if values.get("console") and values["console"] not in covers.CONSOLES:
+        raise HTTPException(400, f"console doit être parmi : {', '.join(covers.CONSOLES)}")
     if values.get("github_repo") and not github.REPO_RE.match(values["github_repo"]):
         raise HTTPException(400, "github_repo attendu sous la forme propriétaire/nom.")
 
@@ -98,6 +100,15 @@ def register(app: FastAPI, ctx: Context) -> None:
     @app.post("/api/packages/{pkg_id}/checksum", tags=["api"], dependencies=api)
     async def api_checksum(pkg_id: str):
         return await ctx.fetch_checksum(ctx.get_or_404(pkg_id))
+
+    @app.post("/api/packages/{pkg_id}/covers", tags=["api"], dependencies=api)
+    async def api_covers(pkg_id: str, values: dict[str, Any] | None = None):
+        """Cherche jaquette, écran titre et capture (libretro). Corps facultatif : {name, console, force}."""
+        values = values or {}
+        check_enums(values)
+        res = await ctx.apply_covers(pkg_id, name=str(values.get("name") or ""),
+                                     console=str(values.get("console") or ""), force=bool(values.get("force")))
+        return {**res, "package": ctx.get_or_404(pkg_id)}
 
     # --- versions --------------------------------------------------------
     @app.get("/api/packages/{pkg_id}/releases", tags=["api"], dependencies=api)

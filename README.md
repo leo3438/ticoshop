@@ -7,6 +7,7 @@ Logiciel auto-hébergé pour gérer **votre propre dépôt (« shop ») pour le 
 | **Catalogue** | Homebrews `.nro`, ports, jeux, fan games, soundpacks, console packs, modules d'émulateurs. Fichier hébergé sur le shop, URL externe ou magnet. Le sha256 et la taille sont calculés automatiquement. Icône, bannière, captures. |
 | **Versions** | Chaque nouveau fichier garde l'ancien dans l'historique. On peut **republier** une version en un clic et, en option, publier les anciennes versions dans tico. |
 | **GitHub** | Un paquet lié à un dépôt suit ses releases : URL, version, changelog et sha256 sont mis à jour automatiquement. |
+| **Jaquettes** | À l'envoi d'une ROM, la console est devinée d'après l'extension et la jaquette, l'écran titre et une capture sont récupérés automatiquement dans la base libretro, celle qu'utilise tico. Le bouton « Chercher la jaquette » de l'admin et `ticoshop cover` permettent de relancer la recherche. |
 | **Modules tico** | En envoyant le `.zip` d'un module, le shop lit son `module.json` et pré-remplit la fiche : nom, consoles, type, catégorie. |
 | **Vitrine** | Catalogue, fiches, page **« Ajouter à tico »** (URL, QR code, script carte SD) et flux RSS. Disponible en **français et en anglais**. |
 | **Admin** | Plusieurs comptes, anti brute-force, statistiques (téléchargements, consultations du Store), **diagnostic** et sauvegardes. |
@@ -50,6 +51,7 @@ docker run -d --name ticoshop -p 8080:8080 -v ./data:/data -v ./backups:/backups
 | `TICOSHOP_DOMAIN`, `COMPOSE_PROFILES=https` | HTTPS via Caddy | — |
 | `TICOSHOP_KEEP_VERSIONS` | Anciennes versions gardées par paquet | 10 |
 | `TICOSHOP_GITHUB_SYNC_HOURS` / `TICOSHOP_GITHUB_TOKEN` | Fréquence de suivi GitHub (0 = off) / jeton optionnel (5000 req/h au lieu de 60) | 6 / — |
+| `TICOSHOP_AUTO_COVERS` / `TICOSHOP_COVERS_URL` | Jaquettes automatiques à l'envoi d'une ROM / serveur libretro | 1 / thumbnails.libretro.com |
 | `TICOSHOP_WEBHOOK_URL` | Webhook Discord ou URL JSON | — |
 | `TICOSHOP_BACKUP_HOURS` / `TICOSHOP_BACKUP_KEEP` | Sauvegarde auto dans `./backups` (0 = off) / nombre gardé | 24 / 7 |
 | `TICOSHOP_LOGIN_MAX_ATTEMPTS` / `TICOSHOP_LOGIN_WINDOW_MINUTES` | Anti brute-force par IP | 5 / 15 |
@@ -58,7 +60,7 @@ docker run -d --name ticoshop -p 8080:8080 -v ./data:/data -v ./backups:/backups
 
 ## Vérifier sur une vraie Switch (à faire en premier)
 
-Le format de `index.json` a été relevé dans le binaire de tico 0.8.0, faute d'accès à la documentation officielle. La page **Admin › Diagnostic** vérifie la configuration et fournit un **dépôt de test** (`/diag/index.json`) contenant un seul paquet minimal :
+Le format de `index.json` a été relevé dans le binaire de tico 0.8.0, faute d'accès à la documentation officielle. Il a été **validé sur une Switch** pour un paquet `zip` installé dans `switch/<id>` : lecture de l'index, fiche, téléchargement, vérification du sha256 et extraction. La page **Admin › Diagnostic** vérifie la configuration et fournit un **dépôt de test** (`/diag/index.json`) contenant un seul paquet minimal :
 
 1. tico › Store › Sources › Ajouter un dépôt › `https://votre-shop/diag/index.json` ;
 2. le dépôt doit afficher 1 paquet ; installez-le : `sdmc:/switch/ticoshop-test/README.txt` doit apparaître ;
@@ -118,6 +120,26 @@ export TICOSHOP_URL=https://shop.mondomaine.fr TICOSHOP_TOKEN=<jeton>   # ou ~/.
 - Une version est archivée **quand le fichier publié change**. Corriger seulement le numéro de version ne crée pas d'entrée. Envoyez donc le fichier avec son numéro (`upload ID FICHIER VERSION`, ou le formulaire admin).
 - **Admin › Dépôt › « Publier aussi les anciennes versions »** ajoute les anciennes versions à `index.json` sous le même `id`, pour la vue « Versions » de tico. Cette option est **expérimentale**.
 
+### Jaquettes automatiques
+- La recherche se fait dans [libretro-thumbnails](https://github.com/libretro-thumbnails/libretro-thumbnails), d'après le **nom No-Intro / Redump** du fichier, par exemple `Super Mario World (USA).sfc`. Les tags `[!]` ou `(Rev 1)` sont retirés si besoin.
+- La jaquette devient l'icône du paquet dans tico et sur la vitrine. L'écran titre sert de bannière et la capture est ajoutée aux captures. Les images sont copiées sur le shop.
+- Si le nom ne correspond pas, indiquez le nom exact dans l'admin (Visuels › Jaquette automatique) ou avec `./scripts/ticoshop cover ID "Nom exact (Europe)" gba`.
+- Pour désactiver la recherche automatique : `TICOSHOP_AUTO_COVERS=0`. Pour utiliser un miroir : `TICOSHOP_COVERS_URL`.
+
+### Dossiers d'installation autorisés
+Pour un dépôt « Communauté », tico refuse d'écrire hors d'un dossier qui dépend du type de paquet. Le message est « Ce paquet tente d'écrire hors des dossiers autorisés pour les paquets de la communauté ». **Laissez « Dossier d'installation » vide** : tico choisit lui-même. Si vous le remplissez, il doit rester dans :
+
+| Paquet | Dossier autorisé |
+|---|---|
+| app / homebrew (`nro`, `zip`) | `switch/<id>` |
+| ROM / jeu (type `rom`) | `tico/roms/…` |
+| port | `tico/ports/…` |
+| soundpack | `tico/theme/soundpacks/<id>` |
+| console pack | `tico/theme/consolepacks/<id>` |
+| module | `tico/modules/<id>` |
+
+L'admin et `ticoshop validate` signalent tout chemin hors de ces dossiers. Pour un jeu, choisissez le type **ROM / jeu**, pas `zip`.
+
 ### Notifications Discord
 Créez un webhook (Paramètres du salon › Intégrations › Webhooks), puis mettez son URL dans `TICOSHOP_WEBHOOK_URL`. Une notification est envoyée quand un paquet devient disponible ou change de version. Toute autre URL reçoit un JSON `{"event": "new"|"update", "package": {...}, "page", "index"}`.
 
@@ -147,7 +169,8 @@ Une archive `tar.gz` (base SQLite copiée de façon cohérente, fichiers et imag
 
 - `category` : `emulator`, `app`, `homebrew`, `game`, `port`, `fangame`, `soundpack`, `consolepack`, `tool`, `other`. `type` : `zip`, `nro`, `rom`, `module`.
 - Un torrent utilise `magnet` (+ `file`) à la place de `url`. Un paquet sans fichier n'est pas publié.
-- Pour un dépôt « communautaire », tico refuse d'écrire dans `atmosphere/`, `bootloader/`, `switch/tico`, `tico/modules`, etc. Les modules sont placés par tico lui-même ; l'utilisateur doit autoriser « Cores from any repository » dans Réglages › Store.
+- Le dossier `install` est limité selon le type de paquet (voir « Dossiers d'installation autorisés »). Les modules d'un dépôt communautaire ne s'installent que si l'utilisateur autorise « Cores from any repository » dans Réglages › Store.
+- `console` (slug : `gba`, `snes`, `nds`…) est ajouté pour les jeux. tico ne lit peut-être pas ce champ (non confirmé), mais il sert à ticoshop pour les jaquettes.
 
 Toute la correspondance se trouve dans `app/index.py`. Pour un champ ajouté par une future version de tico, utilisez les « Champs supplémentaires » (JSON fusionné tel quel), dans l'admin ou avec `extra='{…}'` en CLI.
 
