@@ -1,0 +1,38 @@
+services:
+  ticoshop:
+    # Image publiée par la CI (install.sh --image) ou construite localement (défaut).
+    image: ${TICOSHOP_IMAGE:-ghcr.io/leo3438/ticoshop:latest}
+    build: .
+    container_name: ticoshop
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TICOSHOP_BACKUP_DIR: /backups
+    ports:
+      # Avec HTTPS (profil « https »), TICOSHOP_BIND=127.0.0.1 : seul Caddy est exposé.
+      - "${TICOSHOP_BIND:-0.0.0.0}:${TICOSHOP_PORT:-8080}:8080"
+    volumes:
+      - ./data:/data
+      - ./backups:/backups
+
+  # HTTPS automatique (Let's Encrypt). Activé par COMPOSE_PROFILES=https dans .env.
+  caddy:
+    image: caddy:2.8
+    profiles: ["https"]
+    container_name: ticoshop-caddy
+    restart: unless-stopped
+    depends_on: [ticoshop]
+    environment:
+      TICOSHOP_DOMAIN: ${TICOSHOP_DOMAIN:-}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

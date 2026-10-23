@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card narrow">
+  <h1>{{ t('error.title', status=status) }}</h1>
+  <p>{{ detail }}</p>
+  <p><a href="javascript:history.back()">{{ t('error.back') }}</a></p>
+</section>
+{% endblock %}

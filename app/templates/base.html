@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ repo.name }}{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="alternate" type="application/rss+xml" title="{{ repo.name }}" href="/feed.xml">
+  {% if repo.icon %}<link rel="icon" href="{{ repo.icon }}">{% endif %}
+</head>
+<body data-copied="{{ t('copied') }}">
+  <header class="topbar">
+    <a class="brand" href="/">
+      {% if repo.icon %}<img src="{{ repo.icon }}" alt="">{% endif %}
+      <span>{{ repo.name }}</span>
+    </a>
+    <nav>
+      <a href="/">{{ t('nav.catalog') }}</a>
+      <a class="btn btn-primary" href="/add">{{ t('nav.add') }}</a>
+      {% if is_admin %}
+        <a href="/admin">{{ t('nav.admin') }}</a>
+        <form method="post" action="/admin/logout" class="inline">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="link" title="{{ admin_user }}">{{ t('nav.logout') }}</button>
+        </form>
+      {% endif %}
+    </nav>
+  </header>
+  <main>
+    {% if not public and is_admin %}{% include "admin/_nav.html" %}{% endif %}
+    {% if flash %}<p class="notice">{{ flash }}</p>{% endif %}
+    {% block content %}{% endblock %}
+  </main>
+  <footer>
+    {{ t('footer.repo_for') }} <a href="https://github.com/ticohq/tico">tico</a> ·
+    <a href="/index.json">index.json</a> · <a href="/feed.xml">{{ t('footer.rss') }}</a>
+    {% if public %}
+      <div class="langs">{% for code, label in LANGS.items() %}
+        {% if code == lang %}<strong>{{ label }}</strong>{% else %}<a href="?lang={{ code }}">{{ label }}</a>{% endif %}
+        {% if not loop.last %} · {% endif %}{% endfor %}</div>
+    {% endif %}
+  </footer>
+  <script src="/static/app.js"></script>
+</body>
+</html>

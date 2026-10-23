@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Comptes · {{ repo.name }}{% endblock %}
+{% block content %}
+<h1>Comptes administrateurs</h1>
+{% if error %}<p class="alert">{{ error }}</p>{% endif %}
+<section class="card">
+  <table class="table">
+    <thead><tr><th>Identifiant</th><th>Créé le</th><th></th></tr></thead>
+    <tbody>
+      <tr><td><strong>admin</strong> <span class="pill">.env</span></td><td class="muted small">mot de passe TICOSHOP_ADMIN_PASSWORD (sauf s'il est redéfini ici)</td><td></td></tr>
+      {% for u in users %}{% if u.username != 'admin' %}
+      <tr><td><strong>{{ u.username }}</strong>{% if u.username == admin_user %} <span class="pill">vous</span>{% endif %}</td>
+        <td data-ts="{{ u.created_at|int }}"></td>
+        <td>{% if u.username != admin_user %}
+          <form method="post" action="/admin/users/{{ u.username }}/delete" class="inline" data-confirm="Supprimer le compte {{ u.username }} ?">
+            <input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn">Supprimer</button></form>{% endif %}</td></tr>
+      {% endif %}{% endfor %}
+    </tbody>
+  </table>
+</section>
+<section class="card">
+  <h2>Ajouter un compte ou changer un mot de passe</h2>
+  <form method="post" action="/admin/users" class="form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="row">
+      <label>Identifiant <input name="username" required pattern="[A-Za-z0-9._\-]{2,32}" value="{{ admin_user }}"></label>
+      <label>Mot de passe (10 caractères min.) <input type="password" name="password" minlength="10" required autocomplete="new-password"></label>
+    </div>
+    <button class="btn btn-primary">Enregistrer</button>
+  </form>
+  <p class="muted small">Après {{ request.app.state.settings.login_max_attempts }} échecs de connexion, une adresse IP est bloquée {{ request.app.state.settings.login_window_minutes }} minutes.</p>
+</section>
+{% endblock %}

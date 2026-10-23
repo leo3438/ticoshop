@@ -1,0 +1,200 @@
+#!/usr/bin/env bash
+# CLI de gestion d'un ticoshop via son API.
+#
+# Configuration : TICOSHOP_URL et TICOSHOP_TOKEN (ou fichier ~/.ticoshop / ./.env).
+# Dépendances : curl, jq.
+#
+#   ticoshop list                               liste les paquets
+#   ticoshop show ID                            détail d'un paquet (+ problèmes détectés)
+#   ticoshop add ID "Nom" [clé=valeur…]         crée un paquet
+#   ticoshop set ID clé=valeur…                 modifie un paquet
+#   ticoshop upload ID FICHIER [VERSION]        envoie le fichier (sha256 auto ; l'ancien va dans l'historique)
+#   ticoshop media ID icon|banner|screenshot IMAGE
+#   ticoshop checksum ID                        calcule sha256/taille d'un paquet « url »
+#   ticoshop github ID OWNER/REPO [MOTIF]       lie le paquet aux releases GitHub et le met à jour
+#   ticoshop sync [ID]                          vérifie les releases GitHub (un paquet ou tous)
+#   ticoshop versions ID                        historique des versions
+#   ticoshop rollback ID RID                    republie une ancienne version
+#   ticoshop rm ID                              supprime un paquet et ses fichiers
+#   ticoshop repo [clé=valeur…]                 affiche / modifie le dépôt
+#   ticoshop repo-media icon|cover IMAGE
+#   ticoshop validate                           vérifie tous les paquets publiés
+#   ticoshop stats [JOURS]                      téléchargements et consultations
+#   ticoshop index                              affiche l'index.json publié
+#   ticoshop backup [FICHIER.tar.gz]            crée une sauvegarde sur le serveur et la télécharge
+#   ticoshop restore FICHIER.tar.gz             (sur le serveur) restaure data/ depuis une sauvegarde
+#
+# Clés : name version author category type tags tagline description changelog
+#        source(upload|url|magnet) url magnet torrent_file filename sha256 size
+#        install extract featured published extract_to_folder
+#        github_repo github_asset auto_update
+#   category : emulator app homebrew game port fangame soundpack consolepack tool other
+#   type     : zip nro rom module
+#   tags=a,b,c  ·  featured=true  ·  description=@fichier.md (lit le fichier)
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+load_config() {
+  for f in "$HOME/.ticoshop" "$ROOT/.env"; do
+    if [[ -f "$f" ]]; then
+      set -a
+      # shellcheck disable=SC1090
+      source "$f"
+      set +a
+    fi
+  done
+  TICOSHOP_URL="${TICOSHOP_URL:-${TICOSHOP_PUBLIC_URL:-http://127.0.0.1:${TICOSHOP_PORT:-8080}}}"
+  TICOSHOP_URL="${TICOSHOP_URL%/}"
+  TICOSHOP_TOKEN="${TICOSHOP_TOKEN:-${TICOSHOP_API_TOKEN:-}}"
+}
+
+die() { echo "❌ $*" >&2; exit 1; }
+need() { command -v "$1" >/dev/null || die "$1 est requis."; }
+usage() { sed -n '2,35p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+
+api() {
+  local method="$1" path="$2"; shift 2
+  local out code
+  out=$(mktemp)
+  code=$(curl -sS -o "$out" -w '%{http_code}' -X "$method" \
+    -H "Authorization: Bearer $TICOSHOP_TOKEN" "$@" "$TICOSHOP_URL$path") || { rm -f "$out"; die "Serveur injoignable : $TICOSHOP_URL"; }
+  if [[ "$code" -ge 400 ]]; then
+    local msg
+    msg=$(jq -r '.detail // .' "$out" 2>/dev/null || cat "$out")
+    rm -f "$out"
+    die "HTTP $code : $msg"
+  fi
+  cat "$out"; rm -f "$out"
+}
+
+# clé=valeur… -> objet JSON typé
+kv_json() {
+  local json='{}' key val
+  for pair in "$@"; do
+    [[ "$pair" == *=* ]] || die "Argument attendu sous la forme clé=valeur : $pair"
+    key="${pair%%=*}"; val="${pair#*=}"
+    if [[ "$val" == @* ]]; then
+      [[ -f "${val#@}" ]] || die "Fichier introuvable : ${val#@}"
+      val="$(cat "${val#@}")"
+    fi
+    case "$key" in
+      featured|published|extract|extract_to_folder|auto_update|publish_versions)
+        [[ "$val" =~ ^(true|false|1|0|oui|non)$ ]] || die "$key attend true ou false"
+        json=$(jq --arg k "$key" --arg v "$val" '.[$k] = ($v | test("^(true|1|oui)$"))' <<<"$json") ;;
+      size)
+        json=$(jq --arg k "$key" --arg v "$val" '.[$k] = ($v | tonumber)' <<<"$json") ;;
+      tags)
+        json=$(jq --arg v "$val" '.tags = ($v | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(. != "")))' <<<"$json") ;;
+      extra)
+        json=$(jq --argjson v "$val" '.extra = $v' <<<"$json") ;;
+      *)
+        json=$(jq --arg k "$key" --arg v "$val" '.[$k] = $v' <<<"$json") ;;
+    esac
+  done
+  echo "$json"
+}
+
+human() { awk -v n="${1:-0}" 'BEGIN{split("o Ko Mo Go",u);i=1;while(n>=1024&&i<4){n/=1024;i++}printf (i==1?"%d %s":"%.1f %s"),n,u[i]}'; }
+
+cmd="${1:-help}"; shift || true
+case "$cmd" in
+  help|-h|--help) usage ;;
+  restore) ;;
+  *) need curl; need jq; load_config ;;
+esac
+
+case "$cmd" in
+  list)
+    api GET /api/packages | jq -r '
+      (["ID","NOM","VERSION","CATÉGORIE","TÉLÉCH.","PUBLIÉ"] | @tsv),
+      (.[] | [.id, .name, .version, .category, (.downloads|tostring), (if .published then "oui" else "non" end)] | @tsv)' \
+      | { if command -v column >/dev/null; then column -t -s $'\t'; else cat; fi; } ;;
+  show)
+    [[ $# -eq 1 ]] || usage 1
+    api GET "/api/packages/$1" | jq . ;;
+  add)
+    [[ $# -ge 2 ]] || usage 1
+    id="$1" name="$2"; shift 2
+    body=$(kv_json "$@" | jq --arg id "$id" --arg n "$name" '. + {id: $id, name: $n}')
+    api POST /api/packages -H 'Content-Type: application/json' -d "$body" | jq -r '"✔ Créé : \(.id) (\(.name))"' ;;
+  set)
+    [[ $# -ge 2 ]] || usage 1
+    id="$1"; shift
+    api PATCH "/api/packages/$id" -H 'Content-Type: application/json' -d "$(kv_json "$@")" | jq -r '"✔ Modifié : \(.id)"' ;;
+  upload)
+    [[ $# -ge 2 && -f "$2" ]] || die "Usage : upload ID FICHIER [VERSION]"
+    extra=(); [[ -n "${3:-}" ]] && extra=(-F "version=$3")
+    api POST "/api/packages/$1/file" -F "file=@$2" ${extra[@]+"${extra[@]}"} --progress-bar \
+      | jq -r '"✔ \(.filename) envoyé (\(.size) octets)\(if .version != "" then " · v" + .version else "" end)\n  sha256 \(.sha256)"
+               + (if .module then "\n  module tico détecté : \(.module.name) (\(.module.systems | map(.title) | join(", ")))" else "" end)' ;;
+  media)
+    [[ $# -eq 3 && -f "$3" ]] || die "Usage : media ID icon|banner|screenshot IMAGE"
+    api POST "/api/packages/$1/media" -F "kind=$2" -F "file=@$3" >/dev/null && echo "✔ $2 envoyé" ;;
+  checksum)
+    [[ $# -eq 1 ]] || usage 1
+    api POST "/api/packages/$1/checksum" | jq -r '"✔ sha256 \(.sha256) · \(.size) octets"' ;;
+  github)
+    [[ $# -ge 2 ]] || die "Usage : github ID OWNER/REPO [motif-de-l-asset]"
+    body=$(jq -n --arg r "$2" --arg p "${3:-}" '{github_repo: $r, github_asset: $p, auto_update: true}')
+    api PATCH "/api/packages/$1" -H 'Content-Type: application/json' -d "$body" >/dev/null
+    echo "Lecture de la dernière release de $2…"
+    api POST "/api/packages/$1/sync?force=true" \
+      | jq -r '"✔ \(.package.id) : \(.message)\n  \(.package.filename) · sha256 \(.package.sha256)\n  suivi automatique activé"' ;;
+  sync)
+    if [[ $# -eq 1 ]]; then
+      api POST "/api/packages/$1/sync" | jq -r '"✔ \(.package.id) : \(.message)"'
+    else
+      api POST /api/sync | jq -r 'if length == 0 then "Aucun paquet suivi sur GitHub." else to_entries[] | "\(if (.value | startswith("erreur")) then "⚠" else "✔" end) \(.key) : \(.value)" end'
+    fi ;;
+  versions)
+    [[ $# -eq 1 ]] || usage 1
+    api GET "/api/packages/$1/releases" | jq -r '
+      if length == 0 then "Aucune ancienne version." else
+      (["RID","VERSION","FICHIER","TAILLE","DATE"] | @tsv),
+      (.[] | [(.rid|tostring), .version, (.filename // .url), (.size|tostring), (.created_at|floor|todate)] | @tsv) end' \
+      | { if command -v column >/dev/null; then column -t -s $'\t'; else cat; fi; } ;;
+  rollback)
+    [[ $# -eq 2 ]] || die "Usage : rollback ID RID (voir « versions ID »)"
+    api POST "/api/packages/$1/releases/$2/restore" | jq -r '"✔ \(.id) republié en v\(.version)"' ;;
+  stats)
+    api GET "/api/stats?days=${1:-30}" | jq -r --arg d "${1:-30}" '
+      "Sur \($d) jours : \([.downloads[]] | add) téléchargements, \([.index_fetches[]] | add) consultations du Store",
+      "", "Top :", (.top | to_entries[] | "  \(.value)\t\(.key)")' ;;
+  rm)
+    [[ $# -eq 1 ]] || usage 1
+    if [[ -t 0 ]]; then read -r -p "Supprimer $1 et ses fichiers ? [o/N] " ok; [[ "$ok" =~ ^[oOyY]$ ]] || exit 1; fi
+    api DELETE "/api/packages/$1" >/dev/null && echo "✔ Supprimé : $1" ;;
+  repo)
+    if [[ $# -eq 0 ]]; then api GET /api/repo | jq .
+    else api PUT /api/repo -H 'Content-Type: application/json' -d "$(kv_json "$@")" | jq .; fi ;;
+  repo-media)
+    [[ $# -eq 2 && -f "$2" ]] || die "Usage : repo-media icon|cover IMAGE"
+    api POST /api/repo/media -F "kind=$1" -F "file=@$2" >/dev/null && echo "✔ $1 envoyé" ;;
+  validate)
+    res=$(api GET /api/validate)
+    if [[ $(jq '[.[] | length] | add // 0' <<<"$res") -eq 0 ]]; then
+      echo "✔ Tous les paquets publiés sont installables."
+    else
+      jq -r 'to_entries[] | select(.value | length > 0) | "⚠ \(.key)\n" + (.value | map("   - " + .) | join("\n"))' <<<"$res"
+      exit 2
+    fi ;;
+  index)
+    curl -fsS "$TICOSHOP_URL/index.json" | jq . ;;
+  backup)
+    name=$(api POST /api/backups | jq -r .name)
+    out="${1:-$name}"
+    api GET "/api/backups/$name" >"$out"
+    echo "✔ Sauvegarde : $out ($(human "$(wc -c <"$out")"))" ;;
+  restore)
+    [[ $# -eq 1 && -f "$1" ]] || die "Usage : restore FICHIER.tar.gz"
+    read -r -p "Remplacer $ROOT/data par le contenu de $1 ? [o/N] " ok
+    [[ "$ok" =~ ^[oOyY]$ ]] || exit 1
+    (cd "$ROOT" && { docker compose stop 2>/dev/null || true; })
+    rm -rf "$ROOT/data.old"; [[ -d "$ROOT/data" ]] && mv "$ROOT/data" "$ROOT/data.old"
+    tar -xzf "$1" -C "$ROOT"
+    if [[ "$(id -u)" == 0 ]]; then chown -R 1000:1000 "$ROOT/data"; fi
+    (cd "$ROOT" && { docker compose start 2>/dev/null || true; })
+    echo "✔ Restauré (ancien contenu dans data.old/)" ;;
+  *) echo "Commande inconnue : $cmd" >&2; usage 1 ;;
+esac

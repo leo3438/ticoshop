@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}{{ t('add.title', name=repo.name) }}{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>{{ t('add.title', name=repo.name) }}</h1>
+  <p>{{ t('add.requires')|safe }}</p>
+  <div class="copy-row">
+    <code id="repo-url">{{ index_url }}</code>
+    <button class="btn" data-copy="#repo-url">{{ t('copy') }}</button>
+  </div>
+  <p class="muted small">{{ t('add.short') }} <code id="short-url">{{ base }}/t</code> <button class="link" data-copy="#short-url">{{ t('add.copy_small') }}</button></p>
+</section>
+
+<div class="two-cols">
+  <section class="card">
+    <h2>{{ t('add.switch') }}</h2>
+    <ol class="steps">
+      <li>{{ t('add.step1')|safe }}</li>
+      <li>{{ t('add.step2')|safe }}</li>
+      <li>{{ t('add.step3')|safe }}</li>
+      <li>{{ t('add.step4')|safe }}</li>
+    </ol>
+    <p class="muted small">{{ t('add.community') }}</p>
+  </section>
+
+  <section class="card center">
+    <h2>{{ t('add.qr') }}</h2>
+    <img class="qr" src="/qr.svg" alt="QR code">
+    <p class="muted small">{{ t('add.qr_help') }}</p>
+  </section>
+</div>
+
+<section class="card">
+  <h2>{{ t('add.pc') }}</h2>
+  <p>{{ t('add.pc_intro') }}</p>
+  <div class="copy-row">
+    <code id="sd-cmd">curl -fsSL {{ base }}/add-to-switch.sh | bash -s -- /path/to/SD</code>
+    <button class="btn" data-copy="#sd-cmd">{{ t('copy') }}</button>
+  </div>
+  <p class="muted small">{{ t('add.pc_help')|safe }}</p>
+</section>
+{% endblock %}
