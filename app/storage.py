@@ -1,9 +1,11 @@
 """Fichiers des paquets et images : écriture en flux avec calcul du sha256."""
 import hashlib
+import json
 import re
 import shutil
 import urllib.request
 import uuid
+import zipfile
 from pathlib import Path
 from typing import BinaryIO
 
@@ -42,18 +44,53 @@ def write_stream(src: BinaryIO, dest: Path, max_bytes: int) -> tuple[str, int]:
 
 
 def save_package_file(files_dir: Path, pkg_id: str, filename: str, src: BinaryIO, max_bytes: int) -> tuple[str, str, int]:
-    """Remplace le fichier du paquet. Renvoie (chemin relatif, sha256, taille)."""
-    folder = files_dir / pkg_id
+    """Enregistre un nouveau fichier dans files/<id>/<jeton>/<nom>.
+
+    Chaque envoi a son propre dossier : les anciennes versions restent
+    téléchargeables tant qu'elles sont dans l'historique.
+    Renvoie (chemin relatif, sha256, taille).
+    """
     filename = safe_filename(filename)
-    sha, size = write_stream(src, folder / filename, max_bytes)
-    for old in folder.iterdir():
-        if old.name != filename:
-            old.unlink()
-    return f"{pkg_id}/{filename}", sha, size
+    token = uuid.uuid4().hex[:12]
+    folder = files_dir / pkg_id / token
+    try:
+        sha, size = write_stream(src, folder / filename, max_bytes)
+    except BaseException:
+        shutil.rmtree(folder, ignore_errors=True)
+        raise
+    return f"{pkg_id}/{token}/{filename}", sha, size
 
 
 def delete_package_files(files_dir: Path, pkg_id: str) -> None:
     shutil.rmtree(files_dir / pkg_id, ignore_errors=True)
+
+
+def inspect_module(path: Path) -> dict | None:
+    """Lit le module.json d'une archive de module tico (ex: picodrive/module.json).
+
+    Renvoie {"id", "name", "systems": [{"slug", "title", "short_title"}]} ou None.
+    """
+    try:
+        with zipfile.ZipFile(path) as zf:
+            candidates = sorted(
+                (n for n in zf.namelist() if n.rsplit("/", 1)[-1] == "module.json" and n.count("/") <= 2),
+                key=lambda n: n.count("/"),
+            )
+            if not candidates:
+                return None
+            info = zf.getinfo(candidates[0])
+            if info.file_size > 1024 * 1024:
+                return None
+            data = json.loads(zf.read(info).decode("utf-8"))
+    except (zipfile.BadZipFile, OSError, ValueError, UnicodeDecodeError):
+        return None
+    if not isinstance(data, dict) or not data.get("id"):
+        return None
+    systems = [
+        {k: str(s.get(k, "")) for k in ("slug", "title", "short_title")}
+        for s in data.get("systems") or [] if isinstance(s, dict)
+    ]
+    return {"id": str(data["id"]), "name": str(data.get("name") or data["id"]), "systems": systems}
 
 
 def save_image(media_dir: Path, filename: str, src: BinaryIO, max_bytes: int = 20 * CHUNK) -> str:

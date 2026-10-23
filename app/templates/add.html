@@ -1,44 +1,42 @@
 {% extends "base.html" %}
-{% block title %}Ajouter {{ repo.name }} à tico{% endblock %}
+{% block title %}{{ t('add.title', name=repo.name) }}{% endblock %}
 {% block content %}
 <section class="card">
-  <h1>Ajouter « {{ repo.name }} » à tico</h1>
-  <p>Il faut <strong>tico 0.8.0 ou plus récent</strong> sur une Switch sous Atmosphère, connectée à Internet.</p>
+  <h1>{{ t('add.title', name=repo.name) }}</h1>
+  <p>{{ t('add.requires')|safe }}</p>
   <div class="copy-row">
     <code id="repo-url">{{ index_url }}</code>
-    <button class="btn" data-copy="#repo-url">Copier</button>
+    <button class="btn" data-copy="#repo-url">{{ t('copy') }}</button>
   </div>
-  <p class="muted small">Plus court à taper : <code id="short-url">{{ base }}/t</code> <button class="link" data-copy="#short-url">copier</button></p>
+  <p class="muted small">{{ t('add.short') }} <code id="short-url">{{ base }}/t</code> <button class="link" data-copy="#short-url">{{ t('add.copy_small') }}</button></p>
 </section>
 
 <div class="two-cols">
   <section class="card">
-    <h2>① Depuis la Switch</h2>
+    <h2>{{ t('add.switch') }}</h2>
     <ol class="steps">
-      <li>Ouvrez <strong>tico</strong> et allez dans le <strong>Store</strong>.</li>
-      <li>Onglet <strong>Sources</strong> (Repositories) › <strong>Ajouter un dépôt</strong>.</li>
-      <li>Tapez l'adresse ci-dessus puis validez.</li>
-      <li>Les paquets apparaissent dans <em>Discover</em>, <em>Apps</em> et <em>Games</em>.</li>
+      <li>{{ t('add.step1')|safe }}</li>
+      <li>{{ t('add.step2')|safe }}</li>
+      <li>{{ t('add.step3')|safe }}</li>
+      <li>{{ t('add.step4')|safe }}</li>
     </ol>
-    <p class="muted small">Le dépôt sera marqué « Communauté ». Vous pouvez le passer en « Trusted » dans Sources pour installer sans confirmation.</p>
+    <p class="muted small">{{ t('add.community') }}</p>
   </section>
 
   <section class="card center">
-    <h2>QR code</h2>
-    <img class="qr" src="/qr.svg" alt="QR code de l'adresse du dépôt">
-    <p class="muted small">Scannez-le avec votre téléphone pour avoir l'adresse sous les yeux.</p>
+    <h2>{{ t('add.qr') }}</h2>
+    <img class="qr" src="/qr.svg" alt="QR code">
+    <p class="muted small">{{ t('add.qr_help') }}</p>
   </section>
 </div>
 
 <section class="card">
-  <h2>② Depuis un PC (carte SD)</h2>
-  <p>Insérez la carte SD de la Switch (ou montez-la via USB avec Hekate / DBI), puis :</p>
+  <h2>{{ t('add.pc') }}</h2>
+  <p>{{ t('add.pc_intro') }}</p>
   <div class="copy-row">
-    <code id="sd-cmd">curl -fsSL {{ base }}/add-to-switch.sh | bash -s -- /chemin/vers/SD</code>
-    <button class="btn" data-copy="#sd-cmd">Copier</button>
+    <code id="sd-cmd">curl -fsSL {{ base }}/add-to-switch.sh | bash -s -- /path/to/SD</code>
+    <button class="btn" data-copy="#sd-cmd">{{ t('copy') }}</button>
   </div>
-  <p class="muted small">Le script sauvegarde la configuration existante de tico avant de la modifier (<code>.bak</code>).
-    Exemples de chemin : <code>/media/$USER/SWITCH</code> (Linux), <code>/Volumes/SWITCH</code> (macOS),
-    <code>/e</code> sous Git Bash (Windows).</p>
+  <p class="muted small">{{ t('add.pc_help')|safe }}</p>
 </section>
 {% endblock %}

@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Statistiques · {{ repo.name }}{% endblock %}
+{% macro bars(series, label) %}
+  {% set peak = (series|map(attribute=1)|max) or 1 %}
+  {% set total = series|map(attribute=1)|sum %}
+  <div class="chart-head"><h2>{{ label }}</h2><span class="muted">{{ total }} sur {{ series|length }} jours</span></div>
+  <div class="bars" role="img" aria-label="{{ label }}">
+    {% for day, n in series %}
+      <div class="bar" title="{{ day }} : {{ n }}"><span style="height: {{ (n / peak * 100)|round(1) }}%"></span></div>
+    {% endfor %}
+  </div>
+  <div class="bars-axis muted small"><span>{{ series[0][0] }}</span><span>{{ series[-1][0] }}</span></div>
+{% endmacro %}
+{% block content %}
+<div class="toolbar">
+  <h1>Statistiques</h1>
+  <div>{% for d in (7, 30, 90, 365) %}<a class="btn {{ 'btn-primary' if d == days else '' }}" href="?days={{ d }}">{{ d }} j</a>{% endfor %}</div>
+</div>
+<section class="card">{{ bars(downloads, "Téléchargements") }}</section>
+<section class="card">
+  {{ bars(fetches, "Consultations de index.json") }}
+  <p class="muted small">Chaque ouverture ou actualisation du Store sur une Switch lit index.json : c'est un bon indicateur d'activité.</p>
+</section>
+<div class="two-cols even">
+  <section class="card">
+    <h2>Top {{ days }} jours</h2>
+    <table class="table">{% for name, id, n in top %}
+      <tr><td><a href="/admin/packages/{{ id }}">{{ name }}</a></td><td class="right">{{ n }}</td></tr>
+    {% else %}<tr><td class="muted">Aucun téléchargement sur la période.</td></tr>{% endfor %}</table>
+  </section>
+  <section class="card">
+    <h2>Depuis toujours</h2>
+    <table class="table">{% for p in all_time %}
+      <tr><td><a href="/admin/packages/{{ p.id }}">{{ p.name }}</a></td><td class="right">{{ p.downloads }}</td></tr>
+    {% endfor %}</table>
+  </section>
+</div>
+<p class="muted small">Seuls les fichiers hébergés sur le shop sont comptés (pas les URL externes ni les torrents).</p>
+{% endblock %}

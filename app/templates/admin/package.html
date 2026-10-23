@@ -2,14 +2,12 @@
 {% block title %}{{ pkg.name if pkg else "Nouveau paquet" }} · Admin{% endblock %}
 {% block content %}
 {% set p = pkg or {} %}
-<p><a href="/admin">← Paquets</a></p>
 <section class="card">
   <div class="toolbar">
     <h1>{{ p.name or "Nouveau paquet" }}</h1>
     {% if pkg %}<a class="btn" href="/p/{{ pkg.id }}" target="_blank">Voir la fiche</a>{% endif %}
   </div>
   {% if error %}<p class="alert">{{ error }}</p>{% endif %}
-  {% if request.query_params.get("saved") %}<p class="notice">Enregistré.</p>{% endif %}
   {% for msg in problems %}<p class="alert warn">⚠ {{ msg }}</p>{% endfor %}
 
   <form method="post" enctype="multipart/form-data" class="form" action="{{ '/admin/packages/' ~ pkg.id if pkg else '/admin/packages/new' }}">
@@ -78,6 +76,24 @@
     </fieldset>
 
     <fieldset>
+      <legend>Mise à jour automatique depuis GitHub</legend>
+      <div class="row">
+        <label>Dépôt GitHub <input name="github_repo" value="{{ p.github_repo or '' }}" placeholder="ticohq/tico-picodrive" pattern="[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+"></label>
+        <label>Motif de l'asset (regex) <input name="github_asset" value="{{ p.github_asset or '' }}" placeholder="module\.zip$">
+          <small>Vide = premier .zip ou .nro de la release.</small></label>
+      </div>
+      <label class="check"><input type="checkbox" name="auto_update" {% if p.auto_update %}checked{% endif %}>
+        Suivre les releases : URL, version, changelog et sha256 mis à jour automatiquement</label>
+      {% if pkg and pkg.github_repo %}
+        <p class="muted small">
+          Dernière vérification : <span data-ts="{{ pkg.last_sync|int }}">jamais</span>
+          {% if pkg.sync_error %}<br><span class="alert warn">⚠ {{ pkg.sync_error }}</span>{% endif %}
+        </p>
+        <button class="btn" form="sync-form">Vérifier maintenant</button>
+      {% endif %}
+    </fieldset>
+
+    <fieldset>
       <legend>Installation sur la Switch</legend>
       <label>Dossier d'installation (relatif à la racine de la SD)
         <input name="install" value="{{ p.install or '' }}" placeholder="switch/mon-homebrew  ·  tico/roms/gba  ·  tico/theme/soundpacks">
@@ -120,6 +136,33 @@
   </form>
 
   {% if pkg %}
+  <form id="sync-form" method="post" action="/admin/packages/{{ pkg.id }}/sync">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+  </form>
+
+  <h2 class="section-title">Versions précédentes ({{ releases|length }})</h2>
+  {% if releases %}
+  <table class="table">
+    <thead><tr><th>Version</th><th>Fichier</th><th>Taille</th><th>Date</th><th></th></tr></thead>
+    <tbody>{% for r in releases %}
+      <tr>
+        <td><strong>{{ r.version or "—" }}</strong></td>
+        <td class="small">{{ r.filename or r.url or r.magnet }}</td>
+        <td>{{ r.size|filesize if r.size else "—" }}</td>
+        <td class="small" data-ts="{{ r.created_at|int }}"></td>
+        <td class="nowrap">
+          <form method="post" action="/admin/packages/{{ pkg.id }}/releases/{{ r.rid }}/restore" class="inline" data-confirm="Republier la version {{ r.version }} ?">
+            <input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn">Republier</button></form>
+          <form method="post" action="/admin/packages/{{ pkg.id }}/releases/{{ r.rid }}/delete" class="inline" data-confirm="Supprimer définitivement cette version ?">
+            <input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn">Supprimer</button></form>
+        </td>
+      </tr>{% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted small">Chaque nouveau fichier ou nouvelle version garde l'ancienne ici, pour pouvoir revenir en arrière.</p>
+  {% endif %}
+
   <form method="post" action="/admin/packages/{{ pkg.id }}/delete" class="danger-zone" data-confirm="Supprimer {{ pkg.name }} et ses fichiers ?">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <button class="btn btn-danger">Supprimer le paquet</button>

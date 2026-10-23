@@ -8,21 +8,26 @@
 #   ticoshop show ID                            détail d'un paquet (+ problèmes détectés)
 #   ticoshop add ID "Nom" [clé=valeur…]         crée un paquet
 #   ticoshop set ID clé=valeur…                 modifie un paquet
-#   ticoshop upload ID FICHIER                  envoie le fichier du paquet (sha256 auto)
+#   ticoshop upload ID FICHIER [VERSION]        envoie le fichier (sha256 auto ; l'ancien va dans l'historique)
 #   ticoshop media ID icon|banner|screenshot IMAGE
 #   ticoshop checksum ID                        calcule sha256/taille d'un paquet « url »
-#   ticoshop github ID OWNER/REPO [MOTIF]       pointe sur l'asset de la dernière release GitHub
+#   ticoshop github ID OWNER/REPO [MOTIF]       lie le paquet aux releases GitHub et le met à jour
+#   ticoshop sync [ID]                          vérifie les releases GitHub (un paquet ou tous)
+#   ticoshop versions ID                        historique des versions
+#   ticoshop rollback ID RID                    republie une ancienne version
 #   ticoshop rm ID                              supprime un paquet et ses fichiers
 #   ticoshop repo [clé=valeur…]                 affiche / modifie le dépôt
 #   ticoshop repo-media icon|cover IMAGE
 #   ticoshop validate                           vérifie tous les paquets publiés
+#   ticoshop stats [JOURS]                      téléchargements et consultations
 #   ticoshop index                              affiche l'index.json publié
-#   ticoshop backup [FICHIER.tar.gz]            (sur le serveur) archive le dossier data/
-#   ticoshop restore FICHIER.tar.gz             (sur le serveur) restaure le dossier data/
+#   ticoshop backup [FICHIER.tar.gz]            crée une sauvegarde sur le serveur et la télécharge
+#   ticoshop restore FICHIER.tar.gz             (sur le serveur) restaure data/ depuis une sauvegarde
 #
 # Clés : name version author category type tags tagline description changelog
 #        source(upload|url|magnet) url magnet torrent_file filename sha256 size
 #        install extract featured published extract_to_folder
+#        github_repo github_asset auto_update
 #   category : emulator app homebrew game port fangame soundpack consolepack tool other
 #   type     : zip nro rom module
 #   tags=a,b,c  ·  featured=true  ·  description=@fichier.md (lit le fichier)
@@ -33,8 +38,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 load_config() {
   for f in "$HOME/.ticoshop" "$ROOT/.env"; do
     if [[ -f "$f" ]]; then
+      set -a
       # shellcheck disable=SC1090
-      set -a; source "$f"; set +a
+      source "$f"
+      set +a
     fi
   done
   TICOSHOP_URL="${TICOSHOP_URL:-${TICOSHOP_PUBLIC_URL:-http://127.0.0.1:${TICOSHOP_PORT:-8080}}}"
@@ -44,7 +51,7 @@ load_config() {
 
 die() { echo "❌ $*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null || die "$1 est requis."; }
-usage() { sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,35p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 api() {
   local method="$1" path="$2"; shift 2
@@ -72,7 +79,7 @@ kv_json() {
       val="$(cat "${val#@}")"
     fi
     case "$key" in
-      featured|published|extract|extract_to_folder)
+      featured|published|extract|extract_to_folder|auto_update|publish_versions)
         [[ "$val" =~ ^(true|false|1|0|oui|non)$ ]] || die "$key attend true ou false"
         json=$(jq --arg k "$key" --arg v "$val" '.[$k] = ($v | test("^(true|1|oui)$"))' <<<"$json") ;;
       size)
@@ -93,7 +100,7 @@ human() { awk -v n="${1:-0}" 'BEGIN{split("o Ko Mo Go",u);i=1;while(n>=1024&&i<4
 cmd="${1:-help}"; shift || true
 case "$cmd" in
   help|-h|--help) usage ;;
-  backup|restore) ;;
+  restore) ;;
   *) need curl; need jq; load_config ;;
 esac
 
@@ -116,9 +123,11 @@ case "$cmd" in
     id="$1"; shift
     api PATCH "/api/packages/$id" -H 'Content-Type: application/json' -d "$(kv_json "$@")" | jq -r '"✔ Modifié : \(.id)"' ;;
   upload)
-    [[ $# -eq 2 && -f "$2" ]] || die "Usage : upload ID FICHIER (fichier existant)"
-    api POST "/api/packages/$1/file" -F "file=@$2" --progress-bar \
-      | jq -r '"✔ \(.filename) envoyé (\(.size) octets)\n  sha256 \(.sha256)"' ;;
+    [[ $# -ge 2 && -f "$2" ]] || die "Usage : upload ID FICHIER [VERSION]"
+    extra=(); [[ -n "${3:-}" ]] && extra=(-F "version=$3")
+    api POST "/api/packages/$1/file" -F "file=@$2" ${extra[@]+"${extra[@]}"} --progress-bar \
+      | jq -r '"✔ \(.filename) envoyé (\(.size) octets)\(if .version != "" then " · v" + .version else "" end)\n  sha256 \(.sha256)"
+               + (if .module then "\n  module tico détecté : \(.module.name) (\(.module.systems | map(.title) | join(", ")))" else "" end)' ;;
   media)
     [[ $# -eq 3 && -f "$3" ]] || die "Usage : media ID icon|banner|screenshot IMAGE"
     api POST "/api/packages/$1/media" -F "kind=$2" -F "file=@$3" >/dev/null && echo "✔ $2 envoyé" ;;
@@ -127,23 +136,31 @@ case "$cmd" in
     api POST "/api/packages/$1/checksum" | jq -r '"✔ sha256 \(.sha256) · \(.size) octets"' ;;
   github)
     [[ $# -ge 2 ]] || die "Usage : github ID OWNER/REPO [motif-de-l-asset]"
-    id="$1" gh="$2" pattern="${3:-.}"
-    rel=$(curl -fsSL -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$gh/releases/latest") \
-      || die "Release introuvable pour $gh"
-    asset=$(jq -c --arg p "$pattern" '[.assets[] | select(.name | test($p))][0] // empty' <<<"$rel")
-    [[ -n "$asset" ]] || die "Aucun asset ne correspond à « $pattern ». Assets : $(jq -r '[.assets[].name] | join(", ")' <<<"$rel")"
-    body=$(jq -n --argjson a "$asset" --argjson r "$rel" '{
-      source: "url", url: $a.browser_download_url, filename: $a.name, size: $a.size,
-      version: ($r.tag_name | sub("^v"; "")), changelog: ($r.body // ""), sha256: ""}')
-    # GitHub fournit parfois le digest de l'asset : on l'utilise s'il est là.
-    digest=$(jq -r '.digest // "" | sub("^sha256:"; "")' <<<"$asset")
-    [[ -n "$digest" ]] && body=$(jq --arg d "$digest" '.sha256 = $d' <<<"$body")
-    api PATCH "/api/packages/$id" -H 'Content-Type: application/json' -d "$body" >/dev/null
-    if [[ -z "$digest" ]]; then
-      echo "Calcul du sha256 (téléchargement par le serveur)…"
-      api POST "/api/packages/$id/checksum" >/dev/null
-    fi
-    api GET "/api/packages/$id" | jq -r '"✔ \(.id) → v\(.version) : \(.filename)\n  sha256 \(.sha256)"' ;;
+    body=$(jq -n --arg r "$2" --arg p "${3:-}" '{github_repo: $r, github_asset: $p, auto_update: true}')
+    api PATCH "/api/packages/$1" -H 'Content-Type: application/json' -d "$body" >/dev/null
+    echo "Lecture de la dernière release de $2…"
+    api POST "/api/packages/$1/sync?force=true" \
+      | jq -r '"✔ \(.package.id) : \(.message)\n  \(.package.filename) · sha256 \(.package.sha256)\n  suivi automatique activé"' ;;
+  sync)
+    if [[ $# -eq 1 ]]; then
+      api POST "/api/packages/$1/sync" | jq -r '"✔ \(.package.id) : \(.message)"'
+    else
+      api POST /api/sync | jq -r 'if length == 0 then "Aucun paquet suivi sur GitHub." else to_entries[] | "\(if (.value | startswith("erreur")) then "⚠" else "✔" end) \(.key) : \(.value)" end'
+    fi ;;
+  versions)
+    [[ $# -eq 1 ]] || usage 1
+    api GET "/api/packages/$1/releases" | jq -r '
+      if length == 0 then "Aucune ancienne version." else
+      (["RID","VERSION","FICHIER","TAILLE","DATE"] | @tsv),
+      (.[] | [(.rid|tostring), .version, (.filename // .url), (.size|tostring), (.created_at|floor|todate)] | @tsv) end' \
+      | { if command -v column >/dev/null; then column -t -s $'\t'; else cat; fi; } ;;
+  rollback)
+    [[ $# -eq 2 ]] || die "Usage : rollback ID RID (voir « versions ID »)"
+    api POST "/api/packages/$1/releases/$2/restore" | jq -r '"✔ \(.id) republié en v\(.version)"' ;;
+  stats)
+    api GET "/api/stats?days=${1:-30}" | jq -r --arg d "${1:-30}" '
+      "Sur \($d) jours : \([.downloads[]] | add) téléchargements, \([.index_fetches[]] | add) consultations du Store",
+      "", "Top :", (.top | to_entries[] | "  \(.value)\t\(.key)")' ;;
   rm)
     [[ $# -eq 1 ]] || usage 1
     if [[ -t 0 ]]; then read -r -p "Supprimer $1 et ses fichiers ? [o/N] " ok; [[ "$ok" =~ ^[oOyY]$ ]] || exit 1; fi
@@ -165,15 +182,9 @@ case "$cmd" in
   index)
     curl -fsS "$TICOSHOP_URL/index.json" | jq . ;;
   backup)
-    out="${1:-ticoshop-backup-$(date +%Y%m%d-%H%M%S).tar.gz}"
-    [[ -d "$ROOT/data" ]] || die "Pas de dossier data/ dans $ROOT (à lancer sur le serveur)."
-    stage=$(mktemp -d); trap 'rm -rf "$stage"' EXIT
-    cp -a "$ROOT/data" "$stage/data"
-    # Copie cohérente de la base même si le shop tourne (si sqlite3 est installé).
-    if command -v sqlite3 >/dev/null && [[ -f "$ROOT/data/ticoshop.db" ]]; then
-      sqlite3 "$ROOT/data/ticoshop.db" ".backup '$stage/data/ticoshop.db'"
-    fi
-    tar -czf "$out" -C "$stage" data
+    name=$(api POST /api/backups | jq -r .name)
+    out="${1:-$name}"
+    api GET "/api/backups/$name" >"$out"
     echo "✔ Sauvegarde : $out ($(human "$(wc -c <"$out")"))" ;;
   restore)
     [[ $# -eq 1 && -f "$1" ]] || die "Usage : restore FICHIER.tar.gz"

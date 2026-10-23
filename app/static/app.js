@@ -6,7 +6,7 @@ document.querySelectorAll("[data-copy]").forEach((btn) => {
     try {
       await navigator.clipboard.writeText(text);
       const old = btn.textContent;
-      btn.textContent = "Copié ✓";
+      btn.textContent = document.body.dataset.copied || "✓";
       setTimeout(() => (btn.textContent = old), 1500);
     } catch {
       window.prompt("Copiez :", text);
@@ -29,4 +29,10 @@ document.querySelectorAll("form[data-confirm]").forEach((form) => {
   form.addEventListener("submit", (e) => {
     if (!confirm(form.dataset.confirm)) e.preventDefault();
   });
+});
+
+// Dates (timestamps Unix) affichées dans le fuseau du navigateur
+document.querySelectorAll("[data-ts]").forEach((el) => {
+  const ts = Number(el.dataset.ts);
+  if (ts > 0) el.textContent = new Date(ts * 1000).toLocaleString();
 });

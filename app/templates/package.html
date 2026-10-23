@@ -9,32 +9,41 @@
       <h1>{{ pkg.name }}</h1>
       {% if pkg.tagline %}<p class="tagline">{{ pkg.tagline }}</p>{% endif %}
       <p class="muted">
-        {{ CATEGORIES.get(pkg.category, pkg.category) }}
+        {{ t('cat.' ~ pkg.category) }}
         {% if pkg.version %} · v{{ pkg.version }}{% endif %}
-        {% if pkg.author %} · par {{ pkg.author }}{% endif %}
+        {% if pkg.author %} · {{ t('pkg.by') }} {{ pkg.author }}{% endif %}
         {% if pkg.size %} · {{ pkg.size|filesize }}{% endif %}
       </p>
-      {% for t in pkg.tags %}<span class="pill">{{ t }}</span>{% endfor %}
+      {% for tag in pkg.tags %}<span class="pill">{{ tag }}</span>{% endfor %}
     </div>
   </div>
   <div class="actions">
-    <a class="btn btn-primary" href="/add">Installer depuis tico</a>
-    {% if download %}<a class="btn" href="{{ download }}">Télécharger le fichier</a>{% endif %}
-    {% if is_admin %}<a class="btn" href="/admin/packages/{{ pkg.id }}">Modifier</a>{% endif %}
+    <a class="btn btn-primary" href="/add">{{ t('pkg.install') }}</a>
+    {% if download %}<a class="btn" href="{{ download }}">{{ t('pkg.download') }}</a>{% endif %}
+    {% if is_admin %}<a class="btn" href="/admin/packages/{{ pkg.id }}">{{ t('pkg.edit') }}</a>{% endif %}
   </div>
-  <p class="muted small">Sur la Switch : tico › Store › recherchez « {{ pkg.name }} ».</p>
+  <p class="muted small">{{ t('pkg.on_switch', name=pkg.name) }}</p>
 </section>
 
 {% if pkg.description %}
-<section class="card"><h2>À propos</h2><div class="prose">{{ pkg.description }}</div></section>
+<section class="card"><h2>{{ t('pkg.about') }}</h2><div class="prose">{{ pkg.description }}</div></section>
 {% endif %}
 {% if pkg.screenshots %}
-<section class="card"><h2>Captures</h2>
+<section class="card"><h2>{{ t('pkg.screenshots') }}</h2>
   <div class="shots">{% for s in pkg.screenshots %}<a href="{{ s }}"><img src="{{ s }}" alt=""></a>{% endfor %}</div>
 </section>
 {% endif %}
 {% if pkg.changelog %}
-<section class="card"><h2>Nouveautés</h2><div class="prose">{{ pkg.changelog }}</div></section>
+<section class="card"><h2>{{ t('pkg.whats_new') }}</h2><div class="prose">{{ pkg.changelog }}</div></section>
+{% endif %}
+{% if releases %}
+<section class="card"><h2>{{ t('pkg.versions') }}</h2>
+  <ul class="versions">{% for r in releases %}
+    <li><strong>{{ 'v' ~ r.version if r.version else '—' }}</strong>
+      {% if r.size %}<span class="muted small">{{ r.size|filesize }}</span>{% endif %}
+      {% if r.download %}<a href="{{ r.download }}">{{ t('pkg.download') }}</a>{% endif %}</li>
+  {% endfor %}</ul>
+</section>
 {% endif %}
 {% if pkg.sha256 %}
 <section class="card small muted">sha256 : <code>{{ pkg.sha256 }}</code></section>

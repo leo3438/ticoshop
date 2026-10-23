@@ -6,7 +6,8 @@
   {% if error %}<p class="alert">{{ error }}</p>{% endif %}
   <form method="post" action="/admin/login" class="form">
     <input type="hidden" name="csrf" value="{{ csrf }}">
-    <label>Mot de passe <input type="password" name="password" autofocus required></label>
+    <label>Identifiant <input name="username" value="admin" autocomplete="username" required></label>
+    <label>Mot de passe <input type="password" name="password" autocomplete="current-password" autofocus required></label>
     <button class="btn btn-primary">Se connecter</button>
   </form>
 </section>

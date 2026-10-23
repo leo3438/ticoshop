@@ -1,0 +1,10 @@
+{% set path = request.url.path %}
+<nav class="subnav">
+  <a href="/admin" {% if path == '/admin' or path.startswith('/admin/packages') %}class="active"{% endif %}>Paquets</a>
+  <a href="/admin/repo" {% if path == '/admin/repo' %}class="active"{% endif %}>Dépôt</a>
+  <a href="/admin/stats" {% if path == '/admin/stats' %}class="active"{% endif %}>Statistiques</a>
+  <a href="/admin/diagnostic" {% if path == '/admin/diagnostic' %}class="active"{% endif %}>Diagnostic</a>
+  <a href="/admin/backups" {% if path == '/admin/backups' %}class="active"{% endif %}>Sauvegardes</a>
+  <a href="/admin/users" {% if path == '/admin/users' %}class="active"{% endif %}>Comptes</a>
+  <a href="/api/docs" target="_blank">API</a>
+</nav>

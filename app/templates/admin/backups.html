@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Sauvegardes · {{ repo.name }}{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <h1>Sauvegardes</h1>
+  <form method="post" action="/admin/backups"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="btn btn-primary">Sauvegarder maintenant</button></form>
+</div>
+<section class="card">
+  <table class="table">
+    <thead><tr><th>Archive</th><th>Taille</th><th>Date</th><th></th></tr></thead>
+    <tbody>{% for b in backups %}
+      <tr><td><code>{{ b.name }}</code></td><td>{{ b.size|filesize }}</td><td data-ts="{{ b.time|int }}"></td>
+        <td><a class="btn" href="/admin/backups/{{ b.name }}">Télécharger</a></td></tr>
+    {% else %}<tr><td colspan="4" class="muted center">Aucune sauvegarde.</td></tr>{% endfor %}</tbody>
+  </table>
+</section>
+<section class="card small muted">
+  Sauvegarde automatique toutes les <strong>{{ request.app.state.settings.backup_hours }} h</strong>
+  (0 = désactivée), {{ request.app.state.settings.backup_keep }} archives conservées, dans
+  <code>{{ request.app.state.settings.backup_dir }}</code>.
+  Restauration sur le serveur : <code>./scripts/ticoshop restore &lt;archive&gt;</code>.
+  Gardez une copie hors du serveur (ex. <code>./scripts/ticoshop backup</code> depuis un autre poste).
+</section>
+{% endblock %}

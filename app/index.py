@@ -69,13 +69,23 @@ def package_download_url(base_url: str, pkg: dict[str, Any]) -> str:
     return ""
 
 
-def is_downloadable(base_url: str, pkg: dict[str, Any]) -> bool:
+def release_download_url(base_url: str, pkg_id: str, rel: dict[str, Any]) -> str:
+    """URL d'une ancienne version (voir l'historique des versions)."""
+    if rel["source"] == "upload" and rel.get("local_file"):
+        return f"{base_url}/files/{pkg_id}/r/{rel['rid']}/{rel['filename']}"
+    if rel["source"] == "url":
+        return rel["url"]
+    return ""
+
+
+def is_downloadable(base_url: str, pkg: dict[str, Any], download_url: str | None = None) -> bool:
     if pkg["source"] == "magnet":
         return pkg["magnet"].startswith("magnet:?")
-    return package_download_url(base_url, pkg).startswith(("http://", "https://"))
+    url = package_download_url(base_url, pkg) if download_url is None else download_url
+    return url.startswith(("http://", "https://"))
 
 
-def build_package(base_url: str, pkg: dict[str, Any]) -> dict[str, Any]:
+def build_package(base_url: str, pkg: dict[str, Any], download_url: str | None = None) -> dict[str, Any]:
     entry: dict[str, Any] = {
         "id": pkg["id"],
         "name": pkg["name"],
@@ -102,7 +112,7 @@ def build_package(base_url: str, pkg: dict[str, Any]) -> dict[str, Any]:
         if pkg["torrent_file"]:
             entry["file"] = pkg["torrent_file"]
     else:
-        entry["url"] = package_download_url(base_url, pkg)
+        entry["url"] = package_download_url(base_url, pkg) if download_url is None else download_url
     if pkg["filename"]:
         entry["filename"] = pkg["filename"]
     if pkg["sha256"]:
@@ -120,7 +130,13 @@ def build_package(base_url: str, pkg: dict[str, Any]) -> dict[str, Any]:
     return entry
 
 
-def build_index(base_url: str, repo: dict[str, str], packages: list[dict[str, Any]]) -> dict[str, Any]:
+def build_index(
+    base_url: str,
+    repo: dict[str, str],
+    packages: list[dict[str, Any]],
+    releases: dict[str, list[dict[str, Any]]] | None = None,
+) -> dict[str, Any]:
+    """releases : anciennes versions par paquet, publiées si repo["publish_versions"]."""
     index: dict[str, Any] = {"schema": SCHEMA_VERSION, "name": repo["name"]}
     for key in ("description", "maintainer", "website"):
         if repo.get(key):
@@ -130,9 +146,21 @@ def build_index(base_url: str, repo: dict[str, str], packages: list[dict[str, An
             index[key] = absolute(base_url, repo[key])
     # Un paquet sans fichier téléchargeable n'est pas publié : une entrée
     # invalide pourrait faire rejeter tout l'index par tico.
-    index["packages"] = [
-        build_package(base_url, p) for p in packages if p["published"] and is_downloadable(base_url, p)
-    ]
+    entries = []
+    for p in packages:
+        if not p["published"] or not is_downloadable(base_url, p):
+            continue
+        entries.append(build_package(base_url, p))
+        # Les anciennes versions gardent le même id : tico les regroupe
+        # sous « Versions » sur la fiche du paquet.
+        if repo.get("publish_versions") and releases:
+            for rel in releases.get(p["id"], []):
+                old = {**p, **{k: rel[k] for k in rel if k not in ("rid", "package_id", "created_at")},
+                       "featured": False}
+                url = release_download_url(base_url, p["id"], rel)
+                if is_downloadable(base_url, old, url):
+                    entries.append(build_package(base_url, old, url))
+    index["packages"] = entries
     return index
 
 

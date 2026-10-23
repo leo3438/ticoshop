@@ -1,0 +1,9 @@
+# Reverse proxy HTTPS devant ticoshop. Le certificat est obtenu et renouvelé
+# automatiquement ; le domaine doit pointer vers ce serveur (ports 80 et 443 ouverts).
+{$TICOSHOP_DOMAIN} {
+	encode zstd gzip
+	request_body {
+		max_size 8GB
+	}
+	reverse_proxy ticoshop:8080
+}

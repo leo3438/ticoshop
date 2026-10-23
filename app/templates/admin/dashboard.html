@@ -4,7 +4,6 @@
 <div class="toolbar">
   <h1>Paquets ({{ packages|length }})</h1>
   <div>
-    <a class="btn" href="/admin/repo">Paramètres du dépôt</a>
     <a class="btn" href="/index.json" target="_blank">Voir index.json</a>
     <a class="btn btn-primary" href="/admin/packages/new">+ Nouveau paquet</a>
   </div>
@@ -24,6 +23,7 @@
       <td>
         {% if not p.published %}<span class="pill">brouillon</span>{% endif %}
         {% if p.featured %}<span class="pill">★ mis en avant</span>{% endif %}
+        {% if p.auto_update %}<span class="pill {{ 'warn' if p.sync_error else '' }}" title="{{ p.github_repo }} {{ p.sync_error }}">⟳ GitHub</span>{% endif %}
         {% if problems[p.id] %}<span class="pill warn" title="{{ problems[p.id]|join(' ') }}">⚠ {{ problems[p.id]|length }}</span>
         {% else %}<span class="pill ok">OK</span>{% endif %}
       </td>

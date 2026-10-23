@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Dépôt · {{ repo.name }}{% endblock %}
 {% block content %}
-<p><a href="/admin">← Paquets</a></p>
 <section class="card">
   <h1>Paramètres du dépôt</h1>
   {% if saved %}<p class="notice">Enregistré.</p>{% endif %}
@@ -25,6 +24,8 @@
         <input type="file" name="cover_file" accept="image/png,image/jpeg,image/webp">
       </div>
     </div>
+    <label class="check"><input type="checkbox" name="publish_versions" {% if repo.publish_versions %}checked{% endif %}>
+      Publier aussi les anciennes versions dans index.json (tico les affiche sous « Versions ») — expérimental</label>
     <button class="btn btn-primary">Enregistrer</button>
   </form>
 </section>

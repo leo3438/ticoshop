@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Diagnostic · {{ repo.name }}{% endblock %}
+{% block content %}
+<h1>Diagnostic</h1>
+<section class="card">
+  <ul class="checks-list">{% for level, title, detail in checks %}
+    <li class="{{ level }}"><span class="dot">{{ {'ok': '✓', 'warn': '!', 'err': '✕'}[level] }}</span>
+      <div><strong>{{ title }}</strong>{% if detail %}<div class="muted small">{{ detail }}</div>{% endif %}</div></li>
+  {% endfor %}</ul>
+</section>
+
+<div class="two-cols">
+  <section class="card">
+    <h2>Tester le format sur une vraie Switch</h2>
+    <p>Ce dépôt de test contient un seul paquet minimal (un fichier texte). Il permet de vérifier en une minute que votre version de tico accepte le format généré par ticoshop :</p>
+    <div class="copy-row"><code id="diag-url">{{ diag_url }}</code><button class="btn" data-copy="#diag-url">Copier</button></div>
+    <ol class="steps">
+      <li>tico › Store › <strong>Sources</strong> › Ajouter un dépôt › l'adresse ci-dessus.</li>
+      <li>Le dépôt « ticoshop · test » doit afficher <strong>1 paquet</strong>. Une erreur « Failed to parse » ou « Needs a newer tico » indique un problème de format.</li>
+      <li>Installez « ticoshop test » : le fichier <code>sdmc:/switch/ticoshop-test/README.txt</code> doit apparaître.</li>
+      <li>Désinstallez-le, puis retirez la source de test.</li>
+    </ol>
+    <p class="muted small">Si le test passe mais qu'un de vos paquets échoue, comparez-le avec <a href="/diag/index.json" target="_blank">l'index de test</a> et ajustez le paquet (ou ses « champs supplémentaires »).</p>
+  </section>
+  <section class="card center">
+    <h2>QR code</h2>
+    <img class="qr" src="/qr.svg?target=diag" alt="QR code du dépôt de test">
+  </section>
+</div>
+{% endblock %}

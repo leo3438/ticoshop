@@ -79,3 +79,27 @@ legend { font-weight: 700; padding: 0 6px; }
 .notice { background: var(--ok-bg); color: var(--ok); padding: 8px 12px; border-radius: 8px; }
 .danger-zone { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line); }
 [hidden] { display: none !important; }
+.subnav { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
+.subnav a { padding: 8px 12px; color: var(--muted); border-bottom: 2px solid transparent; }
+.subnav a.active { color: var(--text); border-color: var(--accent); font-weight: 600; }
+.notice { margin: 0 0 12px; }
+.langs { margin-top: 6px; }
+.section-title { margin-top: 24px; }
+.right { text-align: right; } .nowrap { white-space: nowrap; }
+.two-cols.even { grid-template-columns: 1fr 1fr; }
+@media (max-width: 720px) { .two-cols.even { grid-template-columns: 1fr; } }
+.versions { list-style: none; padding: 0; margin: 0; }
+.versions li { display: flex; gap: 12px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.chart-head { display: flex; justify-content: space-between; align-items: baseline; }
+.bars { display: flex; align-items: flex-end; gap: 2px; height: 160px; padding-top: 8px; }
+.bar { flex: 1; height: 100%; display: flex; align-items: flex-end; }
+.bar span { display: block; width: 100%; min-height: 1px; background: var(--accent); border-radius: 3px 3px 0 0; }
+.bar:hover span { opacity: .75; }
+.bars-axis { display: flex; justify-content: space-between; margin-top: 4px; }
+.checks-list { list-style: none; padding: 0; margin: 0; }
+.checks-list li { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.checks-list li:last-child { border-bottom: 0; }
+.dot { width: 24px; height: 24px; flex: none; border-radius: 50%; display: grid; place-items: center; font-size: .8rem; font-weight: 700; }
+.checks-list .ok .dot { background: var(--ok-bg); color: var(--ok); }
+.checks-list .warn .dot { background: var(--warn-bg); color: var(--warn); }
+.checks-list .err .dot { background: #fde8e8; color: var(--danger); }
