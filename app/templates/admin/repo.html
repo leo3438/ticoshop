@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Dépôt · {{ repo.name }}{% endblock %}
+{% block content %}
+<p><a href="/admin">← Paquets</a></p>
+<section class="card">
+  <h1>Paramètres du dépôt</h1>
+  {% if saved %}<p class="notice">Enregistré.</p>{% endif %}
+  <form method="post" enctype="multipart/form-data" class="form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Nom du dépôt (affiché dans tico) <input name="name" value="{{ repo.name }}" required></label>
+    <label>Description <textarea name="description" rows="3">{{ repo.description }}</textarea></label>
+    <div class="row">
+      <label>Mainteneur <input name="maintainer" value="{{ repo.maintainer }}"></label>
+      <label>Site web <input name="website" type="url" value="{{ repo.website }}" placeholder="https://"></label>
+    </div>
+    <div class="row">
+      <div class="field">
+        <span>Icône</span>
+        {% if repo.icon %}<img class="thumb" src="{{ repo.icon }}" alt=""><label class="check"><input type="checkbox" name="icon_remove"> supprimer</label>{% endif %}
+        <input type="file" name="icon_file" accept="image/png,image/jpeg,image/webp">
+      </div>
+      <div class="field">
+        <span>Couverture</span>
+        {% if repo.cover %}<img class="thumb wide" src="{{ repo.cover }}" alt=""><label class="check"><input type="checkbox" name="cover_remove"> supprimer</label>{% endif %}
+        <input type="file" name="cover_file" accept="image/png,image/jpeg,image/webp">
+      </div>
+    </div>
+    <button class="btn btn-primary">Enregistrer</button>
+  </form>
+</section>
+<section class="card small muted">
+  Adresse à saisir dans tico : <code>{{ index_url }}</code>.
+  Si elle est fausse (proxy, nom de domaine), définissez <code>TICOSHOP_PUBLIC_URL</code> dans le fichier <code>.env</code>.
+</section>
+{% endblock %}

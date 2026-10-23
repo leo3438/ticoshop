@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}{{ pkg.name if pkg else "Nouveau paquet" }} · Admin{% endblock %}
+{% block content %}
+{% set p = pkg or {} %}
+<p><a href="/admin">← Paquets</a></p>
+<section class="card">
+  <div class="toolbar">
+    <h1>{{ p.name or "Nouveau paquet" }}</h1>
+    {% if pkg %}<a class="btn" href="/p/{{ pkg.id }}" target="_blank">Voir la fiche</a>{% endif %}
+  </div>
+  {% if error %}<p class="alert">{{ error }}</p>{% endif %}
+  {% if request.query_params.get("saved") %}<p class="notice">Enregistré.</p>{% endif %}
+  {% for msg in problems %}<p class="alert warn">⚠ {{ msg }}</p>{% endfor %}
+
+  <form method="post" enctype="multipart/form-data" class="form" action="{{ '/admin/packages/' ~ pkg.id if pkg else '/admin/packages/new' }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+
+    <fieldset>
+      <legend>Identité</legend>
+      <div class="row">
+        <label>Identifiant {% if pkg %}<input value="{{ pkg.id }}" disabled>{% else %}
+          <input name="id" required pattern="[a-z0-9][a-z0-9._\-]{0,63}" placeholder="mon-homebrew">{% endif %}
+          <small>Unique et définitif : tico s'en sert pour suivre les mises à jour.</small>
+        </label>
+        <label>Nom <input name="name" value="{{ p.name or '' }}" required></label>
+      </div>
+      <div class="row">
+        <label>Version <input name="version" value="{{ p.version or '' }}" placeholder="1.0.0"></label>
+        <label>Auteur <input name="author" value="{{ p.author or '' }}"></label>
+      </div>
+      <div class="row">
+        <label>Catégorie
+          <select name="category">{% for k, v in CATEGORIES.items() %}
+            <option value="{{ k }}" {% if (p.category or 'app') == k %}selected{% endif %}>{{ v }}</option>{% endfor %}
+          </select>
+        </label>
+        <label>Type de paquet
+          <select name="type">{% for k, v in TYPES.items() %}
+            <option value="{{ k }}" {% if (p.type or 'zip') == k %}selected{% endif %}>{{ v }}</option>{% endfor %}
+          </select>
+        </label>
+      </div>
+      <label>Accroche <input name="tagline" value="{{ p.tagline or '' }}" maxlength="120"></label>
+      <label>Tags (séparés par des virgules) <input name="tags" value="{{ (p.tags or [])|join(', ') }}"></label>
+      <label>Description <textarea name="description" rows="5">{{ p.description or '' }}</textarea></label>
+      <label>Nouveautés de cette version <textarea name="changelog" rows="3">{{ p.changelog or '' }}</textarea></label>
+      <div class="checks">
+        <label class="check"><input type="checkbox" name="published" {% if not pkg or p.published %}checked{% endif %}> Publié dans index.json</label>
+        <label class="check"><input type="checkbox" name="featured" {% if p.featured %}checked{% endif %}> Mis en avant</label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Fichier</legend>
+      <label>Source
+        <select name="source" id="source">{% for k, v in SOURCES.items() %}
+          <option value="{{ k }}" {% if (p.source or 'upload') == k %}selected{% endif %}>{{ v }}</option>{% endfor %}
+        </select>
+      </label>
+      <div data-source="upload">
+        {% if p.local_file %}<p class="muted small">Actuel : <code>{{ p.filename }}</code> ({{ p.size|filesize }}) — {{ p.downloads }} téléchargement(s)</p>{% endif %}
+        <label>Envoyer un fichier (.zip, .nro, ROM…) <input type="file" name="package_file"></label>
+        <small class="muted">Le sha256 et la taille sont calculés automatiquement.</small>
+      </div>
+      <div data-source="url">
+        <label>URL de téléchargement <input name="url" type="url" value="{{ p.url or '' }}" placeholder="https://github.com/…/releases/download/…/fichier.zip"></label>
+        <label class="check"><input type="checkbox" name="compute_checksum"> Télécharger le fichier maintenant pour calculer sha256 et taille</label>
+      </div>
+      <div data-source="magnet">
+        <label>Lien magnet <input name="magnet" value="{{ p.magnet or '' }}" placeholder="magnet:?xt=urn:btih:…"></label>
+        <label>Fichier dans le torrent <input name="torrent_file" value="{{ p.torrent_file or '' }}"></label>
+      </div>
+      <div class="row" data-source="url magnet">
+        <label>Nom du fichier <input name="filename" value="{{ p.filename or '' }}"></label>
+        <label>Taille (octets) <input name="size" type="number" min="0" value="{{ p.size or 0 }}"></label>
+      </div>
+      <label data-source="url magnet">sha256 <input name="sha256" value="{{ p.sha256 or '' }}" pattern="[0-9a-fA-F]{64}"></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Installation sur la Switch</legend>
+      <label>Dossier d'installation (relatif à la racine de la SD)
+        <input name="install" value="{{ p.install or '' }}" placeholder="switch/mon-homebrew  ·  tico/roms/gba  ·  tico/theme/soundpacks">
+        <small>Vide = dossier par défaut de tico pour ce type. tico refuse <code>atmosphere</code>, <code>bootloader</code>, <code>switch/tico</code>, <code>tico/modules</code> pour un dépôt communautaire (sauf modules).</small>
+      </label>
+      <div class="checks">
+        <label class="check"><input type="checkbox" name="extract" {% if p.extract %}checked{% endif %}> Extraire l'archive</label>
+        <label class="check"><input type="checkbox" name="extract_to_folder" {% if p.extract_to_folder %}checked{% endif %}> Extraire dans un sous-dossier</label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Visuels</legend>
+      <div class="row">
+        <div class="field"><span>Icône (carrée)</span>
+          {% if p.icon %}<img class="thumb" src="{{ p.icon }}" alt=""><label class="check"><input type="checkbox" name="icon_remove"> supprimer</label>{% endif %}
+          <input type="file" name="icon_file" accept="image/png,image/jpeg,image/webp">
+        </div>
+        <div class="field"><span>Bannière</span>
+          {% if p.banner %}<img class="thumb wide" src="{{ p.banner }}" alt=""><label class="check"><input type="checkbox" name="banner_remove"> supprimer</label>{% endif %}
+          <input type="file" name="banner_file" accept="image/png,image/jpeg,image/webp">
+        </div>
+      </div>
+      <div class="field"><span>Captures d'écran</span>
+        <div class="shots">{% for s in p.screenshots or [] %}
+          <label class="shot"><img src="{{ s }}" alt=""><span class="check"><input type="checkbox" name="screenshot_remove" value="{{ s }}"> supprimer</span></label>{% endfor %}
+        </div>
+        <input type="file" name="screenshot_files" multiple accept="image/png,image/jpeg,image/webp">
+      </div>
+    </fieldset>
+
+    <details>
+      <summary>Avancé : champs supplémentaires (JSON fusionné dans l'entrée index.json)</summary>
+      <textarea name="extra" rows="4" class="mono">{{ (p.extra or {})|tojson(indent=2) }}</textarea>
+    </details>
+
+    <div class="actions">
+      <button class="btn btn-primary">Enregistrer</button>
+    </div>
+  </form>
+
+  {% if pkg %}
+  <form method="post" action="/admin/packages/{{ pkg.id }}/delete" class="danger-zone" data-confirm="Supprimer {{ pkg.name }} et ses fichiers ?">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="btn btn-danger">Supprimer le paquet</button>
+  </form>
+  {% endif %}
+</section>
+{% endblock %}

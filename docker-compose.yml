@@ -1,0 +1,11 @@
+services:
+  ticoshop:
+    build: .
+    image: ticoshop:latest
+    container_name: ticoshop
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${TICOSHOP_PORT:-8080}:8080"
+    volumes:
+      - ./data:/data

@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero" {% if repo.cover %}style="background-image:linear-gradient(90deg,var(--bg) 30%,transparent),url('{{ repo.cover }}')"{% endif %}>
+  <h1>{{ repo.name }}</h1>
+  {% if repo.description %}<p>{{ repo.description }}</p>{% endif %}
+  <div class="copy-row">
+    <code id="repo-url">{{ index_url }}</code>
+    <button class="btn" data-copy="#repo-url">Copier</button>
+    <a class="btn btn-primary" href="/add">Comment l'ajouter ?</a>
+  </div>
+</section>
+
+<form class="filters" method="get">
+  <input type="search" name="q" value="{{ q }}" placeholder="Rechercher…">
+  <select name="category" onchange="this.form.submit()">
+    <option value="">Toutes les catégories</option>
+    {% for c in used_categories %}
+      <option value="{{ c }}" {% if c == category %}selected{% endif %}>{{ CATEGORIES.get(c, c) }}</option>
+    {% endfor %}
+  </select>
+</form>
+
+{% if packages %}
+<div class="grid">
+  {% for p in packages %}
+  <a class="pkg-card" href="/p/{{ p.id }}">
+    <div class="pkg-icon">{% if p.icon %}<img src="{{ p.icon }}" alt="">{% else %}<span>{{ p.name[:1] }}</span>{% endif %}</div>
+    <div>
+      <strong>{{ p.name }}</strong> {% if p.featured %}<span class="pill">★</span>{% endif %}
+      <div class="muted">{{ CATEGORIES.get(p.category, p.category) }}{% if p.version %} · v{{ p.version }}{% endif %}</div>
+      {% if p.tagline %}<div class="tagline">{{ p.tagline }}</div>{% endif %}
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<p class="muted center">Aucun paquet pour l'instant.</p>
+{% endif %}
+{% endblock %}

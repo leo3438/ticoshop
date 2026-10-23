@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}{{ pkg.name }} · {{ repo.name }}{% endblock %}
+{% block content %}
+{% if pkg.banner %}<img class="banner" src="{{ pkg.banner }}" alt="">{% endif %}
+<section class="card">
+  <div class="pkg-head">
+    <div class="pkg-icon big">{% if pkg.icon %}<img src="{{ pkg.icon }}" alt="">{% else %}<span>{{ pkg.name[:1] }}</span>{% endif %}</div>
+    <div>
+      <h1>{{ pkg.name }}</h1>
+      {% if pkg.tagline %}<p class="tagline">{{ pkg.tagline }}</p>{% endif %}
+      <p class="muted">
+        {{ CATEGORIES.get(pkg.category, pkg.category) }}
+        {% if pkg.version %} · v{{ pkg.version }}{% endif %}
+        {% if pkg.author %} · par {{ pkg.author }}{% endif %}
+        {% if pkg.size %} · {{ pkg.size|filesize }}{% endif %}
+      </p>
+      {% for t in pkg.tags %}<span class="pill">{{ t }}</span>{% endfor %}
+    </div>
+  </div>
+  <div class="actions">
+    <a class="btn btn-primary" href="/add">Installer depuis tico</a>
+    {% if download %}<a class="btn" href="{{ download }}">Télécharger le fichier</a>{% endif %}
+    {% if is_admin %}<a class="btn" href="/admin/packages/{{ pkg.id }}">Modifier</a>{% endif %}
+  </div>
+  <p class="muted small">Sur la Switch : tico › Store › recherchez « {{ pkg.name }} ».</p>
+</section>
+
+{% if pkg.description %}
+<section class="card"><h2>À propos</h2><div class="prose">{{ pkg.description }}</div></section>
+{% endif %}
+{% if pkg.screenshots %}
+<section class="card"><h2>Captures</h2>
+  <div class="shots">{% for s in pkg.screenshots %}<a href="{{ s }}"><img src="{{ s }}" alt=""></a>{% endfor %}</div>
+</section>
+{% endif %}
+{% if pkg.changelog %}
+<section class="card"><h2>Nouveautés</h2><div class="prose">{{ pkg.changelog }}</div></section>
+{% endif %}
+{% if pkg.sha256 %}
+<section class="card small muted">sha256 : <code>{{ pkg.sha256 }}</code></section>
+{% endif %}
+{% endblock %}

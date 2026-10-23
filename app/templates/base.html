@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ repo.name }}{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  {% if repo.icon %}<link rel="icon" href="{{ repo.icon }}">{% endif %}
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">
+      {% if repo.icon %}<img src="{{ repo.icon }}" alt="">{% endif %}
+      <span>{{ repo.name }}</span>
+    </a>
+    <nav>
+      <a href="/">Catalogue</a>
+      <a class="btn btn-primary" href="/add">Ajouter à tico</a>
+      {% if is_admin %}
+        <a href="/admin">Admin</a>
+        <form method="post" action="/admin/logout" class="inline">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="link">Déconnexion</button>
+        </form>
+      {% endif %}
+    </nav>
+  </header>
+  <main>{% block content %}{% endblock %}</main>
+  <footer>
+    Dépôt pour le Store de <a href="https://github.com/ticohq/tico">tico</a> ·
+    <a href="/index.json">index.json</a>
+  </footer>
+  <script src="/static/app.js"></script>
+</body>
+</html>

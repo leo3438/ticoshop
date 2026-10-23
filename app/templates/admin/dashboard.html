@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Admin · {{ repo.name }}{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <h1>Paquets ({{ packages|length }})</h1>
+  <div>
+    <a class="btn" href="/admin/repo">Paramètres du dépôt</a>
+    <a class="btn" href="/index.json" target="_blank">Voir index.json</a>
+    <a class="btn btn-primary" href="/admin/packages/new">+ Nouveau paquet</a>
+  </div>
+</div>
+<section class="card">
+<table class="table">
+  <thead><tr><th></th><th>Paquet</th><th>Catégorie</th><th>Version</th><th>Taille</th><th>Téléch.</th><th>État</th></tr></thead>
+  <tbody>
+  {% for p in packages %}
+    <tr>
+      <td><div class="pkg-icon small">{% if p.icon %}<img src="{{ p.icon }}" alt="">{% else %}<span>{{ p.name[:1] }}</span>{% endif %}</div></td>
+      <td><a href="/admin/packages/{{ p.id }}"><strong>{{ p.name }}</strong></a><div class="muted small">{{ p.id }}</div></td>
+      <td>{{ CATEGORIES.get(p.category, p.category) }}</td>
+      <td>{{ p.version }}</td>
+      <td>{{ p.size|filesize if p.size else "—" }}</td>
+      <td>{{ p.downloads }}</td>
+      <td>
+        {% if not p.published %}<span class="pill">brouillon</span>{% endif %}
+        {% if p.featured %}<span class="pill">★ mis en avant</span>{% endif %}
+        {% if problems[p.id] %}<span class="pill warn" title="{{ problems[p.id]|join(' ') }}">⚠ {{ problems[p.id]|length }}</span>
+        {% else %}<span class="pill ok">OK</span>{% endif %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="7" class="center muted">Aucun paquet. <a href="/admin/packages/new">Créer le premier</a>.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</section>
+{% endblock %}
