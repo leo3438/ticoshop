@@ -1,6 +1,8 @@
 """État partagé par les routes : configuration, base, templates et utilitaires."""
 import hmac
 import secrets
+import uuid
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -9,7 +11,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from fastapi.templating import Jinja2Templates
 
-from . import covers, notify, storage
+from . import consolepacks, covers, notify, storage
 from .config import Settings
 from .db import Database
 from .i18n import LANGS, pick_lang, translator
@@ -118,13 +120,15 @@ class Context:
         return pkg
 
     async def store_upload(self, pkg_id: str, upload: UploadFile,
-                           values: dict[str, Any] | None = None) -> tuple[dict[str, Any] | None, str]:
-        """Enregistre le fichier (et « values » dans la même mise à jour).
+                           values: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Enregistre le fichier (et « values » dans la même mise à jour), puis l'adapte à tico :
 
-        - Module tico : pré-remplit le paquet d'après son module.json.
-        - ROM : l'emballe dans un zip « tico/roms/<console>/<nom> » ; tico 0.8 masque les
-          paquets « type: rom » des dépôts communautaires mais installe ce zip.
-        Renvoie (infos du module.json ou None, chemin de la ROM dans le zip ou "").
+        - module tico : pré-remplit le paquet d'après son module.json ;
+        - ROM : l'emballe dans un zip « tico/roms/<console>/<nom> » (tico 0.8 masque
+          les paquets « type: rom » des dépôts communautaires mais installe ce zip) ;
+        - console pack / soundpack : convertit l'archive (zip, rar, 7z, même au format
+          « à coller à la racine de la SD ») vers les dossiers de tico 0.8.
+        Renvoie {"module", "rom_path", "pack"} (ce qui a été fait).
         """
         try:
             rel, sha, size = await run_in_threadpool(
@@ -135,8 +139,9 @@ class Context:
             raise HTTPException(413, f"Fichier trop gros (max {self.settings.max_upload_mb} Mo).")
         values = dict(values or {})
         pkg = {**self.get_or_404(pkg_id), **values}
-        wrapped = ""
-        if (pkg["type"] == "rom" or category_of(pkg) == "game") and not pkg.get("keep_archive"):
+        info: dict[str, Any] = {"module": None, "rom_path": "", "pack": None}
+        category = category_of(pkg)
+        if (pkg["type"] == "rom" or category == "game") and not pkg.get("keep_archive"):
             _, ext = covers.rom_name(rel, self.settings.files_dir / rel)
             console = pkg.get("console") or covers.guess_console(ext)
             if console:
@@ -144,18 +149,103 @@ class Context:
                                               set(covers.EXTENSIONS))
                 if res:
                     rel, sha, size, rom = res
-                    wrapped = f"tico/roms/{console}/{rom}"
+                    info["rom_path"] = f"tico/roms/{console}/{rom}"
                     values.update(type="zip", console=console, install="", keep_archive=False,
                                   extract_to_folder=False)
+        elif category in ("consolepack", "soundpack") and Path(rel).suffix.lower() in consolepacks.ARCHIVE_EXTS:
+            converted = await run_in_threadpool(self._convert_pack, pkg_id, rel, category)
+            if converted:
+                rel, sha, size, pack_info, previews, sounds = converted
+                info["pack"] = pack_info
+                folder = "consolepacks" if category == "consolepack" else "soundpacks"
+                values.update(type="zip", install=f"tico/theme/{folder}/{pkg_id}", keep_archive=False,
+                              extract_to_folder=False)
+                self._add_previews(pkg, values, previews)
         self.db.set_local_file(pkg_id, rel, Path(rel).name, sha, size, values)
+        if info["pack"] and info["pack"].get("soundpacks"):
+            info["pack"]["soundpack_packages"] = self._create_soundpacks(pkg_id, sounds)
         if self.settings.auto_covers:
             await self.auto_covers(pkg_id)
-        module = None
-        if not wrapped and rel.lower().endswith(".zip"):
-            module = await run_in_threadpool(storage.inspect_module, self.settings.files_dir / rel)
-        if module:
-            self.apply_module(pkg_id, module)
-        return module, wrapped
+        if not info["rom_path"] and not info["pack"] and rel.lower().endswith(".zip"):
+            info["module"] = await run_in_threadpool(storage.inspect_module, self.settings.files_dir / rel)
+        if info["module"]:
+            self.apply_module(pkg_id, info["module"])
+        return info
+
+    def _convert_pack(self, pkg_id: str, rel: str, category: str):
+        """Réorganise l'archive envoyée ; None si elle ne contient rien de reconnu."""
+        src = self.settings.files_dir / rel
+        try:
+            pack, tmp = consolepacks.open_pack(src, self.max_bytes)
+        except consolepacks.PackError:
+            return None  # gardé tel quel : la validation signalera le problème
+        try:
+            if category == "consolepack":
+                files = pack.files
+            else:  # soundpack : le premier jeu de sons trouvé, à la racine du dossier
+                files = next(iter(pack.soundpacks.values()), {})
+            if not files:
+                return None
+            token = uuid.uuid4().hex[:12]
+            out = self.settings.files_dir / pkg_id / token / f"{pkg_id}.zip"
+            consolepacks.write_zip(files, out)
+            sha, size = storage.file_digest(out)
+            previews = [p.read_bytes() for p in pack.previews[:8] if p.stat().st_size < 20 * 1024 * 1024]
+            preview_exts = [p.suffix.lower() for p in pack.previews[:8] if p.stat().st_size < 20 * 1024 * 1024]
+            sounds = {name: {k: v.read_bytes() for k, v in fs.items()} for name, fs in pack.soundpacks.items()} \
+                if category == "consolepack" else {}
+            pack_info = {
+                "consoles": pack.consoles(),
+                "counts": {k: pack.count(k) for k in consolepacks.KINDS},
+                "colors": "colors.json" in pack.files,
+                "soundpacks": list(sounds),
+                "skipped": pack.skipped[:20],
+            }
+        finally:
+            tmp.cleanup()
+        src.unlink(missing_ok=True)
+        if src.parent.exists() and not any(src.parent.iterdir()):
+            src.parent.rmdir()
+        return (f"{pkg_id}/{token}/{out.name}", sha, size, pack_info,
+                list(zip(previews, preview_exts)), sounds)
+
+    def _add_previews(self, pkg: dict[str, Any], values: dict[str, Any], previews: list) -> None:
+        """Les images d'aperçu de l'archive deviennent bannière / captures si le paquet n'en a pas."""
+        if not previews:
+            return
+        media = self.settings.media_dir
+        shots = list(pkg.get("screenshots") or [])
+        if not pkg.get("banner"):
+            values["banner"] = storage.save_image_bytes(media, previews[0][0], previews[0][1])
+        if not shots:
+            values["screenshots"] = [storage.save_image_bytes(media, data, ext) for data, ext in previews[:8]]
+
+    def _create_soundpacks(self, pkg_id: str, sounds: dict[str, dict[str, bytes]]) -> list[str]:
+        """Un soundpack livré avec un console pack devient son propre paquet (dossier différent)."""
+        parent = self.get_or_404(pkg_id)
+        created = []
+        for i, (name, files) in enumerate(sounds.items()):
+            sid = f"{pkg_id}-sons" if len(sounds) == 1 else f"{pkg_id}-sons-{i + 1}"
+            if not self.db.get_package(sid):
+                self.db.create_package(sid, {
+                    "name": f"{parent['name']} (sons)", "category": "soundpack", "type": "zip",
+                    "version": parent["version"], "author": parent["author"], "published": False,
+                    "description": f"Soundpack « {name} » livré avec {parent['name']}.",
+                    "icon": parent["icon"], "banner": parent["banner"],
+                })
+            token = uuid.uuid4().hex[:12]
+            out = self.settings.files_dir / sid / token / f"{sid}.zip"
+            out.parent.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+                for arcname, data in sorted(files.items()):
+                    zf.writestr(arcname, data)
+            sha, size = storage.file_digest(out)
+            self.db.set_local_file(sid, f"{sid}/{token}/{out.name}", out.name, sha, size, {
+                "install": f"tico/theme/soundpacks/{sid}", "published": parent["published"],
+                "version": parent["version"],
+            })
+            created.append(sid)
+        return created
 
     async def auto_covers(self, pkg_id: str) -> None:
         """À l'envoi d'une ROM : devine la console et ajoute la jaquette si le paquet n'en a pas."""

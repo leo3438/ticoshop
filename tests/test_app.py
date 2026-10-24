@@ -597,3 +597,78 @@ def test_keep_archive_not_rewrapped(client):
     assert r["rom_path"] == "" and r["filename"] == "Game (USA).zip"
     entry = client.get("/index.json").json()["packages"][0]
     assert entry["extract"] is False and entry["install"] == "tico/roms/snes"
+
+
+
+def make_pack_zip():
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        root = "Mon Pack (pegar en raiz de SD)/"
+        zf.writestr(root + "covers.jpg", b"\xff\xd8preview")
+        zf.writestr(root + "tico/assets/systems/covers/gba.jpg", b"cover-gba")
+        zf.writestr(root + "tico/assets/systems/covers/snes.jpg", b"cover-snes")
+        zf.writestr(root + "tico/assets/systems/logos/gba.png", b"logo-gba")
+        zf.writestr(root + "tico/assets/systems/symbols/gba.svg", b"<svg/>")
+        zf.writestr(root + "tico/assets/backgrounds/gba/", b"")
+        zf.writestr(root + "tico/theme/console_colors.json", b'{"gba": {"color_start": "000000"}}')
+        zf.writestr(root + "tico/theme/soundpacks/mes_sons/click.mp3", b"mp3")
+        zf.writestr(root + "README.txt", b"merci")
+    return buf.getvalue()
+
+
+def test_consolepack_converted(client, tmp_path):
+    client.post("/api/packages", headers=auth(), json={"id": "mon-pack", "name": "Mon pack", "category": "consolepack"})
+    r = client.post("/api/packages/mon-pack/file", headers=auth(), files={"file": ("pack.zip", make_pack_zip())}).json()
+    pack = r["pack"]
+    assert pack["consoles"] == ["gba", "snes"] and pack["counts"]["covers"] == 2 and pack["colors"]
+    assert pack["soundpack_packages"] == ["mon-pack-sons"] and pack["skipped"] == ["Mon Pack (pegar en raiz de SD)/README.txt"]
+    assert r["install"] == "tico/theme/consolepacks/mon-pack" and r["type"] == "zip"
+    assert r["banner"].startswith("/media/") and len(r["screenshots"]) == 1
+    with zipfile.ZipFile(tmp_path / "files" / r["local_file"]) as zf:
+        assert sorted(zf.namelist()) == ["colors.json", "covers/gba.jpg", "covers/snes.jpg", "logos/gba.png", "symbols/gba.svg"]
+        assert zf.read("covers/gba.jpg") == b"cover-gba"
+    assert client.get("/api/packages/mon-pack", headers=auth()).json()["problems"] == []
+
+    sons = client.get("/api/packages/mon-pack-sons", headers=auth()).json()
+    assert sons["category"] == "soundpack" and sons["install"] == "tico/theme/soundpacks/mon-pack-sons"
+    with zipfile.ZipFile(tmp_path / "files" / sons["local_file"]) as zf:
+        assert zf.namelist() == ["click.mp3"]
+    entry = {e["id"]: e for e in client.get("/index.json").json()["packages"]}["mon-pack"]
+    assert entry["category"] == "consolepack" and entry["install"] == "tico/theme/consolepacks/mon-pack"
+
+
+def test_soundpack_converted(client, tmp_path):
+    client.post("/api/packages", headers=auth(), json={"id": "sons", "category": "soundpack"})
+    r = client.post("/api/packages/sons/file", headers=auth(), files={"file": ("p.zip", make_pack_zip())}).json()
+    with zipfile.ZipFile(tmp_path / "files" / r["local_file"]) as zf:
+        assert zf.namelist() == ["click.mp3"]
+    assert r["install"] == "tico/theme/soundpacks/sons"
+
+
+def test_consolepack_7z(client, tmp_path):
+    import shutil
+    import subprocess
+
+    if not shutil.which("bsdtar"):
+        pytest.skip("bsdtar absent")
+    src = tmp_path / "src"
+    (src / "tico/assets/systems/covers").mkdir(parents=True)
+    (src / "tico/assets/systems/covers/nes.jpg").write_bytes(b"nes")
+    archive = tmp_path / "pack.7z"
+    subprocess.run(["bsdtar", "--format", "7zip", "-cf", str(archive), "-C", str(src), "tico"], check=True)
+    client.post("/api/packages", headers=auth(), json={"id": "p7", "category": "consolepack"})
+    r = client.post("/api/packages/p7/file", headers=auth(), files={"file": ("pack.7z", archive.read_bytes())}).json()
+    assert r["pack"]["consoles"] == ["nes"] and r["filename"] == "p7.zip"
+
+
+def test_pack_rejects_path_traversal(tmp_path):
+    from app import consolepacks
+
+    evil = tmp_path / "evil.zip"
+    with zipfile.ZipFile(evil, "w") as zf:
+        zf.writestr("../../escape.txt", b"x")
+        zf.writestr("tico/assets/systems/covers/gb.jpg", b"gb")
+    dest = tmp_path / "out"
+    dest.mkdir()
+    consolepacks.extract(evil, dest, 10**6)
+    assert not (tmp_path / "escape.txt").exists() and (dest / "tico/assets/systems/covers/gb.jpg").exists()

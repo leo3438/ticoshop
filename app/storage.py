@@ -105,6 +105,14 @@ def wrap_rom(files_dir: Path, pkg_id: str, src_rel: str, console: str, rom_exts:
     return f"{pkg_id}/{token}/{dest.name}", digest.hexdigest(), dest.stat().st_size, rom_name
 
 
+def file_digest(path: Path) -> tuple[str, int]:
+    digest = hashlib.sha256()
+    with path.open("rb") as f:
+        while chunk := f.read(CHUNK):
+            digest.update(chunk)
+    return digest.hexdigest(), path.stat().st_size
+
+
 def zip_entries(path: Path) -> list[str] | None:
     """Fichiers d'un zip (sans les dossiers), ou None si ce n'est pas un zip lisible."""
     try:

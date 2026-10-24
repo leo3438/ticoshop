@@ -147,6 +147,14 @@ Uniquement des jeux que vous avez le droit de distribuer : homebrews, jeux gratu
 - **Jeu en plusieurs fichiers** (`.cue` + `.bin`) : préparez un zip `tico/roms/<console>/<Jeu>/…`, ou utilisez un dossier d'installation `tico/roms/<console>` avec **Extraire dans un sous-dossier**. Dans tico, activez Réglages › Général › Scan Subfolders.
 - La **console** devient le premier tag. tico range les jeux en rayons par console, d'après un nom ou un slug (`gba`, `snes`, `psx`/`playstation`…). tico ne lit que 2 tags.
 
+### Console packs et soundpacks
+Envoyez l'archive telle que l'auteur la distribue (**zip, rar ou 7z**), même au format « à coller à la racine de la SD » (`tico/assets/systems/covers/gba.jpg`…). Choisissez la catégorie **Console pack** ou **Soundpack** : ticoshop la convertit au format de tico 0.8.
+
+- **Console pack** : les images vont dans `covers/`, `backgrounds/`, `logos/` et `symbols/`, `console_colors.json` devient `colors.json`, et le tout s'installe dans `tico/theme/consolepacks/<id>`. L'utilisateur le choisit dans Réglages › Interface › Console Pack, sans que ses fichiers ne soient écrasés.
+- Un **soundpack** livré dans le même pack (`theme/soundpacks/<nom>/`) devient un paquet séparé, `<id>-sons`, installé dans `tico/theme/soundpacks/`.
+- Les images d'aperçu de l'archive (`covers.jpg`, fond d'écran…) deviennent la bannière et les captures de la fiche.
+- Ne publiez que des packs dont vous avez l'accord de l'auteur, en le créditant dans la description. Évitez les visuels repris de Nintendo (style « Switch Online »).
+
 ### Notifications Discord
 Créez un webhook (Paramètres du salon › Intégrations › Webhooks), puis mettez son URL dans `TICOSHOP_WEBHOOK_URL`. Une notification est envoyée quand un paquet devient disponible ou change de version. Toute autre URL reçoit un JSON `{"event": "new"|"update", "package": {...}, "page", "index"}`.
 

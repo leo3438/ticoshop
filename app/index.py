@@ -247,6 +247,9 @@ def validate_package(pkg: dict[str, Any], files_dir: Path | None = None) -> list
         problems.append("Module : tico ne l'accepte d'un dépôt communautaire que si l'utilisateur active "
                         "Réglages › Store › Cores from any repository.")
 
+    if category == "consolepack" and not _under(install, f"tico/theme/consolepacks/{pkg['id']}"):
+        problems.append(f"Console pack : renvoyez l'archive du pack, ticoshop l'installera dans "
+                        f"tico/theme/consolepacks/{pkg['id']} (choix dans Réglages › Interface › Console Pack).")
     if category == "soundpack" and not _under(install, f"tico/theme/soundpacks/{pkg['id']}"):
         problems.append(f"Soundpack : seul tico/theme/soundpacks/{pkg['id']} est autorisé.")
     if category in ("game", "port") and not tags_of(pkg):
