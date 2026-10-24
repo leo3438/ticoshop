@@ -10,6 +10,8 @@
 #   ticoshop set ID clé=valeur…                 modifie un paquet
 #   ticoshop upload ID FICHIER [VERSION]        envoie le fichier (sha256 auto ; l'ancien va dans l'historique)
 #   ticoshop media ID icon|banner|screenshot IMAGE
+#   ticoshop import ID [URL]                    télécharge le lien, reconnaît/renomme et l'héberge sur le shop
+#   ticoshop cover ID [NOM] [CONSOLE]           cherche jaquette, écran titre et capture (libretro)
 #   ticoshop checksum ID                        calcule sha256/taille d'un paquet « url »
 #   ticoshop github ID OWNER/REPO [MOTIF]       lie le paquet aux releases GitHub et le met à jour
 #   ticoshop sync [ID]                          vérifie les releases GitHub (un paquet ou tous)
@@ -26,9 +28,9 @@
 #
 # Clés : name version author category type tags tagline description changelog
 #        source(upload|url|magnet) url magnet torrent_file filename sha256 size
-#        install extract featured published extract_to_folder
-#        github_repo github_asset auto_update
-#   category : emulator app homebrew game port fangame soundpack consolepack tool other
+#        install keep_archive featured published extract_to_folder
+#        github_repo github_asset auto_update console (gba, snes, nds… : voir « cover »)
+#   category : app game port soundpack consolepack
 #   type     : zip nro rom module
 #   tags=a,b,c  ·  featured=true  ·  description=@fichier.md (lit le fichier)
 set -euo pipefail
@@ -51,7 +53,7 @@ load_config() {
 
 die() { echo "❌ $*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null || die "$1 est requis."; }
-usage() { sed -n '2,35p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 api() {
   local method="$1" path="$2"; shift 2
@@ -79,7 +81,7 @@ kv_json() {
       val="$(cat "${val#@}")"
     fi
     case "$key" in
-      featured|published|extract|extract_to_folder|auto_update|publish_versions)
+      featured|published|keep_archive|extract_to_folder|auto_update|publish_versions)
         [[ "$val" =~ ^(true|false|1|0|oui|non)$ ]] || die "$key attend true ou false"
         json=$(jq --arg k "$key" --arg v "$val" '.[$k] = ($v | test("^(true|1|oui)$"))' <<<"$json") ;;
       size)
@@ -109,7 +111,7 @@ case "$cmd" in
     api GET /api/packages | jq -r '
       (["ID","NOM","VERSION","CATÉGORIE","TÉLÉCH.","PUBLIÉ"] | @tsv),
       (.[] | [.id, .name, .version, .category, (.downloads|tostring), (if .published then "oui" else "non" end)] | @tsv)' \
-      | { if command -v column >/dev/null; then column -t -s $'\t'; else cat; fi; } ;;
+      | { if command -v column >/dev/null; then LC_ALL=C.UTF-8 column -t -s $'\t'; else cat; fi; } ;;
   show)
     [[ $# -eq 1 ]] || usage 1
     api GET "/api/packages/$1" | jq . ;;
@@ -131,6 +133,18 @@ case "$cmd" in
   media)
     [[ $# -eq 3 && -f "$3" ]] || die "Usage : media ID icon|banner|screenshot IMAGE"
     api POST "/api/packages/$1/media" -F "kind=$2" -F "file=@$3" >/dev/null && echo "✔ $2 envoyé" ;;
+  import)
+    [[ $# -ge 1 ]] || die "Usage : import ID [URL]"
+    api POST "/api/packages/$1/import" -H 'Content-Type: application/json' -d "$(jq -n --arg u "${2:-}" '{url: $u}')" \
+      | jq -r '"✔ \(.id) importé : \(.filename) (\(.size) octets)"
+               + (if .rom_path != "" then "\n  ROM \(if .identified then "reconnue" else "nettoyée" end) : \(.rom_path)" else "" end)
+               + (if .pack then "\n  pack : \(.pack.consoles | length) console(s)" else "" end)' ;;
+  cover)
+    [[ $# -ge 1 ]] || die "Usage : cover ID [NOM_DU_JEU] [CONSOLE]"
+    body=$(jq -n --arg n "${2:-}" --arg c "${3:-}" '{name: $n, console: $c, force: true}')
+    api POST "/api/packages/$1/covers" -H 'Content-Type: application/json' -d "$body" \
+      | jq -r 'if .found != "" then "✔ « \(.found) » (\(.console)) : \(.added | join(", "))"
+               else "✗ rien trouvé pour « \(.tried) » (\(.console)) : essayez le nom No-Intro exact" end' ;;
   checksum)
     [[ $# -eq 1 ]] || usage 1
     api POST "/api/packages/$1/checksum" | jq -r '"✔ sha256 \(.sha256) · \(.size) octets"' ;;
@@ -153,7 +167,7 @@ case "$cmd" in
       if length == 0 then "Aucune ancienne version." else
       (["RID","VERSION","FICHIER","TAILLE","DATE"] | @tsv),
       (.[] | [(.rid|tostring), .version, (.filename // .url), (.size|tostring), (.created_at|floor|todate)] | @tsv) end' \
-      | { if command -v column >/dev/null; then column -t -s $'\t'; else cat; fi; } ;;
+      | { if command -v column >/dev/null; then LC_ALL=C.UTF-8 column -t -s $'\t'; else cat; fi; } ;;
   rollback)
     [[ $# -eq 2 ]] || die "Usage : rollback ID RID (voir « versions ID »)"
     api POST "/api/packages/$1/releases/$2/restore" | jq -r '"✔ \(.id) republié en v\(.version)"' ;;

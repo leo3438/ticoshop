@@ -20,6 +20,7 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: requirements-dev.txt
+      - run: sudo apt-get install -y --no-install-recommends libarchive-tools
       - run: pip install -r requirements-dev.txt
       - run: pytest -q
       - name: Scripts bash

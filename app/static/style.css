@@ -103,3 +103,5 @@ legend { font-weight: 700; padding: 0 6px; }
 .checks-list .ok .dot { background: var(--ok-bg); color: var(--ok); }
 .checks-list .warn .dot { background: var(--warn-bg); color: var(--warn); }
 .checks-list .err .dot { background: #fde8e8; color: var(--danger); }
+.cover-search { display: flex; flex-direction: column; gap: 6px; padding: 10px; border-radius: 10px; background: var(--bg); }
+.cover-search .row { align-items: center; }
