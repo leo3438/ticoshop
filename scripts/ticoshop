@@ -110,7 +110,7 @@ case "$cmd" in
     api GET /api/packages | jq -r '
       (["ID","NOM","VERSION","CATÉGORIE","TÉLÉCH.","PUBLIÉ"] | @tsv),
       (.[] | [.id, .name, .version, .category, (.downloads|tostring), (if .published then "oui" else "non" end)] | @tsv)' \
-      | { if command -v column >/dev/null; then column -t -s $'\t'; else cat; fi; } ;;
+      | { if command -v column >/dev/null; then LC_ALL=C.UTF-8 column -t -s $'\t'; else cat; fi; } ;;
   show)
     [[ $# -eq 1 ]] || usage 1
     api GET "/api/packages/$1" | jq . ;;
@@ -160,7 +160,7 @@ case "$cmd" in
       if length == 0 then "Aucune ancienne version." else
       (["RID","VERSION","FICHIER","TAILLE","DATE"] | @tsv),
       (.[] | [(.rid|tostring), .version, (.filename // .url), (.size|tostring), (.created_at|floor|todate)] | @tsv) end' \
-      | { if command -v column >/dev/null; then column -t -s $'\t'; else cat; fi; } ;;
+      | { if command -v column >/dev/null; then LC_ALL=C.UTF-8 column -t -s $'\t'; else cat; fi; } ;;
   rollback)
     [[ $# -eq 2 ]] || die "Usage : rollback ID RID (voir « versions ID »)"
     api POST "/api/packages/$1/releases/$2/restore" | jq -r '"✔ \(.id) republié en v\(.version)"' ;;
