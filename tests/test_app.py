@@ -209,8 +209,8 @@ def test_module_zip_prefills_package(client):
     r = client.post("/api/packages/picodrive/file", headers=auth(),
                     files={"file": ("tico-picodrive-module.zip", module_zip())}).json()
     assert r["module"]["name"] == "PicoDrive"
-    assert r["type"] == "module" and r["category"] == "emulator"
-    assert r["name"] == "PicoDrive" and "32X" in r["tags"]
+    assert r["type"] == "module" and r["category"] == "app"
+    assert r["name"] == "PicoDrive" and r["tags"] == ["emulator", "sega-32x"]
     assert r["install"] == ""
 
 
@@ -452,7 +452,7 @@ def test_covers_auto_on_rom_upload(client, monkeypatch):
     assert client.get(pkg["icon"]).content == PNG_BOX
     assert asked[0].startswith("https://thumbnails.libretro.com/Nintendo%20-%20Super%20Nintendo%20Entertainment%20System/Named_Boxarts/")
     entry = client.get("/index.json").json()["packages"][0]
-    assert entry["icon"].startswith("https://shop.test/media/") and entry["console"] == "snes"
+    assert entry["icon"].startswith("https://shop.test/media/") and "console" not in entry
 
 
 def test_covers_manual_and_not_found(client, monkeypatch):
@@ -490,7 +490,8 @@ def test_install_root_validation(client):
     assert "hors du dossier autorisé" not in problems(category="homebrew", type="nro", install="switch/v")
     assert "hors du dossier autorisé" in problems(category="homebrew", type="nro", install="switch/autre")
     assert "hors du dossier autorisé" not in problems(category="soundpack", install="")
-    assert "type « ROM / jeu »" in problems(category="game", type="zip")
+    assert "n'affiche pas les paquets de type ROM" in problems(category="game", type="rom")
+    assert "catégorie « app »" in problems(category="emulator", type="module")
 
 
 def test_covers_server_unreachable(client, monkeypatch):

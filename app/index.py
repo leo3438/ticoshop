@@ -101,10 +101,6 @@ def build_package(base_url: str, pkg: dict[str, Any], download_url: str | None =
         entry["screenshots"] = [absolute(base_url, s) for s in pkg["screenshots"]]
     if pkg["featured"]:
         entry["featured"] = True
-    if pkg.get("console"):
-        # Console du jeu (slug tico : gba, snes, nds…). Le nom exact du champ
-        # attendu par tico n'est pas confirmé : il est ignoré s'il ne le connaît pas.
-        entry["console"] = pkg["console"]
 
     if pkg["source"] == "magnet":
         entry["magnet"] = pkg["magnet"]
@@ -202,8 +198,11 @@ def validate_package(pkg: dict[str, Any]) -> list[str]:
             f"« {install} » est hors du dossier autorisé pour ce type de paquet ({root}) : "
             "tico refusera l'installation. Laissez le champ vide, tico choisira le bon dossier."
         )
-    if pkg["category"] == "game" and pkg["type"] == "zip":
-        problems.append("Pour un jeu, choisissez le type « ROM / jeu » : tico le rangera dans Jeux.")
-    if pkg["type"] == "module" and pkg["category"] != "emulator":
-        problems.append("Un module tico devrait être dans la catégorie « emulator ».")
+    if pkg["type"] == "module" and pkg["category"] != "app":
+        problems.append("Le dépôt officiel range les modules en catégorie « app » (avec le tag « emulator »).")
+    if pkg["type"] == "rom":
+        problems.append(
+            "tico 0.8 n'affiche pas les paquets de type ROM d'un dépôt communautaire (constaté sur Switch) : "
+            "copiez les ROM directement dans tico/roms/<console>/ sur la carte SD."
+        )
     return problems

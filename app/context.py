@@ -192,11 +192,12 @@ class Context:
 
     def apply_module(self, pkg_id: str, module: dict[str, Any]) -> None:
         pkg = self.get_or_404(pkg_id)
-        values: dict[str, Any] = {"type": "module", "category": "emulator"}
+        # Comme le dépôt officiel : catégorie « app », tags « emulator » + consoles.
+        values: dict[str, Any] = {"type": "module", "category": "app"}
         if not pkg["name"] or pkg["name"] == pkg_id:
             values["name"] = module["name"]
-        consoles = [s["short_title"] or s["title"] for s in module["systems"] if s["short_title"] or s["title"]]
-        values["tags"] = list(dict.fromkeys([*pkg["tags"], *consoles]))
+        consoles = [s["slug"] for s in module["systems"] if s["slug"]]
+        values["tags"] = list(dict.fromkeys(["emulator", *pkg["tags"], *consoles]))
         # Pas de dossier « install » : tico place lui-même les modules dans
         # tico/modules, un chemin explicite serait refusé (dossier protégé).
         self.db.update_package(pkg_id, values)

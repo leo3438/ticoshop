@@ -103,7 +103,7 @@ export TICOSHOP_URL=https://shop.mondomaine.fr TICOSHOP_TOKEN=<jeton>   # ou ~/.
 ./scripts/ticoshop upload picodrive tico-picodrive-module.zip 3.0.0
 
 # Paquet qui suit les releases GitHub (vérifié toutes les TICOSHOP_GITHUB_SYNC_HOURS heures)
-./scripts/ticoshop add mon-emu "Mon émulateur" category=emulator type=module
+./scripts/ticoshop add mon-emu "Mon émulateur" category=app type=module tags=emulator,gba
 ./scripts/ticoshop github mon-emu moi/mon-emulateur 'module\.zip$'
 ./scripts/ticoshop sync                                    # forcer une vérification
 
@@ -138,7 +138,10 @@ Pour un dépôt « Communauté », tico refuse d'écrire hors d'un dossier qui d
 | console pack | `tico/theme/consolepacks/<id>` |
 | module | `tico/modules/<id>` |
 
-L'admin et `ticoshop validate` signalent tout chemin hors de ces dossiers. Pour un jeu, choisissez le type **ROM / jeu**, pas `zip`.
+L'admin et `ticoshop validate` signalent tout chemin hors de ces dossiers. Les paquets du dépôt officiel n'ont d'ailleurs aucun champ `install`.
+
+### ROM et jeux
+D'après les tests sur Switch, **tico 0.8 n'affiche pas les paquets de type `rom`** venant d'un dépôt communautaire. Ils disparaissent de la liste, avec ou sans `tags` de console. Le dépôt officiel ne contient d'ailleurs que des `module` et des `nro`. En attendant que tico documente ce type, copiez les ROM directement sur la carte SD dans `tico/roms/<console>/`. Les jaquettes automatiques restent disponibles pour les fiches de la vitrine.
 
 ### Notifications Discord
 Créez un webhook (Paramètres du salon › Intégrations › Webhooks), puis mettez son URL dans `TICOSHOP_WEBHOOK_URL`. Une notification est envoyée quand un paquet devient disponible ou change de version. Toute autre URL reçoit un JSON `{"event": "new"|"update", "package": {...}, "page", "index"}`.
@@ -167,10 +170,11 @@ Une archive `tar.gz` (base SQLite copiée de façon cohérente, fichiers et imag
 }
 ```
 
-- `category` : `emulator`, `app`, `homebrew`, `game`, `port`, `fangame`, `soundpack`, `consolepack`, `tool`, `other`. `type` : `zip`, `nro`, `rom`, `module`.
+- `category` : `app`, `homebrew`, `game`, `port`, `fangame`, `soundpack`, `consolepack`, `tool`, `other` (et `emulator`, pour la vitrine seulement). `type` : `zip`, `nro`, `module` (`rom` : voir « ROM et jeux »).
+- Les modules officiels sont en catégorie `app` avec `tags: ["emulator", "<console>"]`, sans `install`, `filename` ni `extract`.
 - Un torrent utilise `magnet` (+ `file`) à la place de `url`. Un paquet sans fichier n'est pas publié.
 - Le dossier `install` est limité selon le type de paquet (voir « Dossiers d'installation autorisés »). Les modules d'un dépôt communautaire ne s'installent que si l'utilisateur autorise « Cores from any repository » dans Réglages › Store.
-- `console` (slug : `gba`, `snes`, `nds`…) est ajouté pour les jeux. tico ne lit peut-être pas ce champ (non confirmé), mais il sert à ticoshop pour les jaquettes.
+- La console d'un jeu (`gba`, `snes`…) n'est utilisée que par ticoshop, pour les jaquettes. Elle n'est pas publiée dans l'index.
 
 Toute la correspondance se trouve dans `app/index.py`. Pour un champ ajouté par une future version de tico, utilisez les « Champs supplémentaires » (JSON fusionné tel quel), dans l'admin ou avec `extra='{…}'` en CLI.
 
