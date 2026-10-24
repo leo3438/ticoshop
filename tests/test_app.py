@@ -1,4 +1,5 @@
 import hashlib
+from pathlib import Path
 import io
 import json
 import re
@@ -27,6 +28,7 @@ def make_app(tmp_path, monkeypatch, **env):
         "TICOSHOP_API_TOKEN": TOKEN,
         "TICOSHOP_SCHEDULER": "0",
         "TICOSHOP_WEBHOOK_URL": "",
+        "TICOSHOP_DATS_URL": "http://127.0.0.1:9/dats",  # pas de réseau dans les tests
     }
     defaults.update(env)
     for k, v in defaults.items():
@@ -672,3 +674,81 @@ def test_pack_rejects_path_traversal(tmp_path):
     dest.mkdir()
     consolepacks.extract(evil, dest, 10**6)
     assert not (tmp_path / "escape.txt").exists() and (dest / "tico/assets/systems/covers/gb.jpg").exists()
+
+
+# --- reconnaissance des ROM (No-Intro) ------------------------------------------
+FAKE_DAT = """clrmamepro ( name "Nintendo - Game Boy" )
+game (
+	name "Tetris (World) (Rev 1)"
+	rom ( name "Tetris (World) (Rev 1).gb" size 8 crc {crc} md5 00 sha1 00 )
+)
+game (
+	name "Mario \\"Land\\" (Europe)"
+	rom ( name "Mario \\"Land\\" (Europe).gb" size 3 crc 00000001 md5 00 sha1 00 )
+)
+"""
+
+
+def tetris_dat():
+    import zlib
+    return FAKE_DAT.format(crc=f"{zlib.crc32(b'TETRISGB') & 0xFFFFFFFF:08X}")
+
+
+def test_romnames_identify_and_clean():
+    import zlib
+
+    from app import romnames
+    table = romnames.parse_dat(tetris_dat())
+    assert table[f"{zlib.crc32(b'TETRISGB') & 0xFFFFFFFF:08X}"] == "Tetris (World) (Rev 1).gb"
+    assert 'Mario "Land" (Europe).gb' in table.values()
+    assert romnames.canonical_name(b"TETRISGB", "tetris_v11_[!].gb", table) == ("Tetris (World) (Rev 1).gb", True)
+    # en-tête iNES ignoré pour le CRC
+    nes = {f"{zlib.crc32(b'GAME') & 0xFFFFFFFF:08X}": "Game (USA).nes"}
+    assert romnames.identify(b"H" * 16 + b"GAME", ".nes", nes) == "Game (USA).nes"
+    assert romnames.clean_name("1234_-_super_mario_land_(E)_[!]_apfix") == "Super Mario Land (Europe)"
+    assert romnames.clean_name("Zelda - Link's Awakening (U) [b1]") == "Zelda - Link's Awakening (USA)"
+    assert romnames.clean_name("Mon Jeu (USA)") == "Mon Jeu (USA)"
+    assert romnames.title_of("Tetris (World) (Rev 1).gb") == "Tetris"
+    assert romnames.system_for("gameboy") == "Nintendo - Game Boy" and romnames.system_for("psx") is None
+
+
+def test_rom_upload_renamed_by_crc(client, tmp_path):
+    (tmp_path / "dats").mkdir()
+    (tmp_path / "dats" / "Nintendo - Game Boy.dat").write_text(tetris_dat())  # cache déjà rempli
+    client.post("/api/packages", headers=auth(), json={"id": "tetris", "category": "game"})
+    r = client.post("/api/packages/tetris/file", headers=auth(),
+                    files={"file": ("tetris_v11_[!].gb", b"TETRISGB")}).json()
+    assert r["identified"] and r["rom_path"] == "tico/roms/gb/Tetris (World) (Rev 1).gb"
+    assert r["name"] == "Tetris" and r["filename"] == "Tetris (World) (Rev 1).zip"
+    # ROM inconnue : nom seulement nettoyé
+    client.post("/api/packages", headers=auth(), json={"id": "inconnu", "category": "game"})
+    r = client.post("/api/packages/inconnu/file", headers=auth(),
+                    files={"file": ("super_mario_land_(E)_apfix.gb", b"???")}).json()
+    assert not r["identified"] and r["rom_path"] == "tico/roms/gb/Super Mario Land (Europe).gb"
+
+
+def test_rename_script(tmp_path):
+    import subprocess
+    import sys
+
+    sd = tmp_path / "SD"
+    gb = sd / "tico/roms/gb"
+    gb.mkdir(parents=True)
+    (gb / "tetris_v11.gb").write_bytes(b"TETRISGB")
+    with zipfile.ZipFile(gb / "pack.zip", "w") as zf:
+        zf.writestr("whatever.gb", b"TETRISGB")
+    (gb / "pokemon_(F)_[!].gb").write_bytes(b"unknown")
+    (gb / "notes.txt").write_text("x")
+    dats = tmp_path / "dats"
+    dats.mkdir()
+    (dats / "Nintendo - Game Boy.dat").write_text(tetris_dat())
+    script = Path(__file__).resolve().parent.parent / "scripts" / "rename-roms.py"
+
+    dry = subprocess.run([sys.executable, str(script), str(sd), "--dats", str(dats)],
+                         capture_output=True, text=True, check=True).stdout
+    assert "tetris_v11.gb  ->  Tetris (World) (Rev 1).gb" in dry and (gb / "tetris_v11.gb").exists()
+    out = subprocess.run([sys.executable, str(script), str(sd), "--dats", str(dats), "--apply"],
+                         capture_output=True, text=True, check=True).stdout
+    names = sorted(p.name for p in gb.iterdir())
+    assert names == ["Pokemon (France).gb", "Tetris (World) (Rev 1).gb", "Tetris (World) (Rev 1).zip", "notes.txt"]
+    assert "3 ROM, 2 reconnues par CRC, 3 renommées" in out

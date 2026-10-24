@@ -147,6 +147,18 @@ Uniquement des jeux que vous avez le droit de distribuer : homebrews, jeux gratu
 - **Jeu en plusieurs fichiers** (`.cue` + `.bin`) : préparez un zip `tico/roms/<console>/<Jeu>/…`, ou utilisez un dossier d'installation `tico/roms/<console>` avec **Extraire dans un sous-dossier**. Dans tico, activez Réglages › Général › Scan Subfolders.
 - La **console** devient le premier tag. tico range les jeux en rayons par console, d'après un nom ou un slug (`gba`, `snes`, `psx`/`playstation`…). tico ne lit que 2 tags.
 
+### Noms de ROM corrects (jaquettes SteamGridDB / libretro)
+tico trouve les jaquettes et les titres d'après le **nom** du jeu. Un fichier nommé `pkmn_crystal_FR_apfix.gbc` ne donne rien, alors que `Pokemon - Version Cristal (France).gbc` est trouvé. ticoshop **identifie chaque ROM par son CRC32** dans les bases **No-Intro** de libretro-database (téléchargées une fois, puis gardées en cache) :
+
+- **À l'envoi dans le shop** : la ROM est renommée avec son nom officiel avant d'être emballée. Le nom du paquet devient le titre sans les tags. Si la ROM n'est pas reconnue, son nom est nettoyé : `_` → espaces, `(E)` → `(Europe)`, et `[!]`, `_apfix` ou les numéros de release sont retirés. Pour désactiver : `TICOSHOP_ROM_RENAME=0`.
+- **Sur votre carte SD ou un dossier de ROM**, avec `scripts/rename-roms.py` (Python 3, sans dépendance) :
+  ```bash
+  ./scripts/rename-roms.py /media/$USER/SWITCH            # parcourt tico/roms/<console>/, sans rien modifier
+  ./scripts/rename-roms.py /media/$USER/SWITCH --apply    # renomme vraiment
+  ./scripts/rename-roms.py ~/roms --console gba --apply   # un dossier d'une seule console
+  ```
+  Sans `--apply`, le script affiche seulement les changements. Un `.zip` qui ne contient qu'une ROM est renommé d'après elle. Les consoles à CD et l'arcade sont ignorées : leurs bases utilisent d'autres empreintes.
+
 ### Console packs et soundpacks
 Envoyez l'archive telle que l'auteur la distribue (**zip, rar ou 7z**), même au format « à coller à la racine de la SD » (`tico/assets/systems/covers/gba.jpg`…). Choisissez la catégorie **Console pack** ou **Soundpack** : ticoshop la convertit au format de tico 0.8.
 

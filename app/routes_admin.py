@@ -167,7 +167,9 @@ def register(app: FastAPI, ctx: Context) -> None:
             info = await ctx.store_upload(pkg_id, upload, values)  # type: ignore[arg-type]
             module, pack = info["module"], info["pack"]
             if info["rom_path"]:
-                request.session["flash"] = f"ROM emballée dans un zip ({info['rom_path']}) : c'est le format que tico installe."
+                how = "reconnue (No-Intro)" if info.get("identified") else "nom nettoyé, ROM non reconnue par son CRC"
+                request.session["flash"] = (f"ROM {how} et emballée dans un zip ({info['rom_path']}) : "
+                                            "c'est le format que tico installe.")
             if pack:
                 parts = [f"{len(pack['consoles'])} console(s)"] + [f"{n} {k}" for k, n in pack["counts"].items() if n]
                 if pack["colors"]:

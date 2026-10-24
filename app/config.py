@@ -35,6 +35,12 @@ class Settings:
         self.auto_covers = os.environ.get("TICOSHOP_AUTO_COVERS", "1") not in ("0", "false", "no")
         self.covers_url = os.environ.get("TICOSHOP_COVERS_URL", "https://thumbnails.libretro.com").rstrip("/")
 
+        # Renommage des ROM au nom officiel No-Intro (identification par CRC32).
+        self.rom_rename = os.environ.get("TICOSHOP_ROM_RENAME", "1") not in ("0", "false", "no")
+        self.dats_url = os.environ.get(
+            "TICOSHOP_DATS_URL",
+            "https://raw.githubusercontent.com/libretro/libretro-database/master/metadat/no-intro").rstrip("/")
+
         # Notification (Discord ou JSON générique) à chaque nouveauté.
         self.webhook_url = os.environ.get("TICOSHOP_WEBHOOK_URL", "")
 
@@ -58,6 +64,10 @@ class Settings:
     @property
     def files_dir(self) -> Path:
         return self.data_dir / "files"
+
+    @property
+    def dats_dir(self) -> Path:
+        return self.data_dir / "dats"
 
     @property
     def media_dir(self) -> Path:

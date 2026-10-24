@@ -11,7 +11,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from fastapi.templating import Jinja2Templates
 
-from . import consolepacks, covers, notify, storage
+from . import consolepacks, covers, notify, romnames, storage
 from .config import Settings
 from .db import Database
 from .i18n import LANGS, pick_lang, translator
@@ -139,17 +139,22 @@ class Context:
             raise HTTPException(413, f"Fichier trop gros (max {self.settings.max_upload_mb} Mo).")
         values = dict(values or {})
         pkg = {**self.get_or_404(pkg_id), **values}
-        info: dict[str, Any] = {"module": None, "rom_path": "", "pack": None}
+        info: dict[str, Any] = {"module": None, "rom_path": "", "pack": None, "identified": False}
         category = category_of(pkg)
         if (pkg["type"] == "rom" or category == "game") and not pkg.get("keep_archive"):
             _, ext = covers.rom_name(rel, self.settings.files_dir / rel)
             console = pkg.get("console") or covers.guess_console(ext)
             if console:
+                new_name = ""
+                if self.settings.rom_rename:
+                    new_name, info["identified"] = await run_in_threadpool(self._rom_name, rel, console)
                 res = await run_in_threadpool(storage.wrap_rom, self.settings.files_dir, pkg_id, rel, console,
-                                              set(covers.EXTENSIONS))
+                                              set(covers.EXTENSIONS), new_name)
                 if res:
                     rel, sha, size, rom = res
                     info["rom_path"] = f"tico/roms/{console}/{rom}"
+                    if not pkg.get("name") or pkg["name"] == pkg_id:
+                        values["name"] = romnames.title_of(rom)
                     values.update(type="zip", console=console, install="", keep_archive=False,
                                   extract_to_folder=False)
         elif category in ("consolepack", "soundpack") and Path(rel).suffix.lower() in consolepacks.ARCHIVE_EXTS:
@@ -171,6 +176,15 @@ class Context:
         if info["module"]:
             self.apply_module(pkg_id, info["module"])
         return info
+
+    def _rom_name(self, rel: str, console: str) -> tuple[str, bool]:
+        """Nom officiel No-Intro (CRC32) de la ROM envoyée, sinon nom nettoyé."""
+        rom = romnames.read_rom(self.settings.files_dir / rel, set(covers.EXTENSIONS))
+        if not rom:
+            return "", False
+        data, name = rom
+        table = romnames.load_dat(console, self.settings.dats_dir, self.settings.dats_url)
+        return romnames.canonical_name(data, name, table)
 
     def _convert_pack(self, pkg_id: str, rel: str, category: str):
         """Réorganise l'archive envoyée ; None si elle ne contient rien de reconnu."""

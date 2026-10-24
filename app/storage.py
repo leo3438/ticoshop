@@ -66,7 +66,8 @@ def delete_package_files(files_dir: Path, pkg_id: str) -> None:
     shutil.rmtree(files_dir / pkg_id, ignore_errors=True)
 
 
-def wrap_rom(files_dir: Path, pkg_id: str, src_rel: str, console: str, rom_exts: set[str]) -> tuple[str, str, int, str] | None:
+def wrap_rom(files_dir: Path, pkg_id: str, src_rel: str, console: str, rom_exts: set[str],
+             new_name: str = "") -> tuple[str, str, int, str] | None:
     """Emballe une ROM dans un zip « tico/roms/<console>/<nom> » (format accepté par tico 0.8).
 
     src_rel : ROM brute, ou zip contenant une seule ROM. Renvoie (chemin relatif du
@@ -85,6 +86,8 @@ def wrap_rom(files_dir: Path, pkg_id: str, src_rel: str, console: str, rom_exts:
         rom_name = src.name
     else:
         return None
+    if new_name:
+        rom_name = safe_filename(new_name)
     token = uuid.uuid4().hex[:12]
     dest = files_dir / pkg_id / token / f"{Path(rom_name).stem}.zip"
     dest.parent.mkdir(parents=True, exist_ok=True)
