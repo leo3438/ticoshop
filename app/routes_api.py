@@ -103,6 +103,13 @@ def register(app: FastAPI, ctx: Context) -> None:
     async def api_checksum(pkg_id: str):
         return await ctx.fetch_checksum(ctx.get_or_404(pkg_id))
 
+    @app.post("/api/packages/{pkg_id}/import", tags=["api"], dependencies=api)
+    async def api_import(pkg_id: str, values: dict[str, Any] | None = None):
+        """Importe sur le shop le fichier d'un lien (corps facultatif : {"url": "..."}) :
+        téléchargé, reconnu, renommé et hébergé comme un envoi."""
+        info = await ctx.import_url(pkg_id, str((values or {}).get("url") or ""))
+        return {**ctx.get_or_404(pkg_id), **info}
+
     @app.post("/api/packages/{pkg_id}/covers", tags=["api"], dependencies=api)
     async def api_covers(pkg_id: str, values: dict[str, Any] | None = None):
         """Cherche jaquette, écran titre et capture (libretro). Corps facultatif : {name, console, force}."""

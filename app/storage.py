@@ -3,6 +3,7 @@ import hashlib
 import json
 import re
 import shutil
+import urllib.parse
 import urllib.request
 import uuid
 import zipfile
@@ -171,6 +172,25 @@ def save_image_bytes(media_dir: Path, data: bytes, ext: str = ".png") -> str:
 def delete_image(media_dir: Path, ref: str) -> None:
     if ref.startswith("/media/"):
         (media_dir / Path(ref).name).unlink(missing_ok=True)
+
+
+def download(url: str, dest_dir: Path, max_bytes: int) -> tuple[Path, str]:
+    """Télécharge une URL http(s) dans dest_dir. Renvoie (fichier temporaire, nom d'origine)."""
+    if not url.startswith(("http://", "https://")):
+        raise ValueError("URL http(s) attendue")
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    req = urllib.request.Request(url, headers={"User-Agent": "ticoshop"})
+    tmp = dest_dir / f".download-{uuid.uuid4().hex}"
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        name = resp.headers.get_filename() or ""
+        if not name:
+            name = urllib.parse.unquote(Path(urllib.parse.urlparse(resp.geturl()).path).name)
+        try:
+            write_stream(resp, tmp, max_bytes)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
+    return tmp, safe_filename(name or "download.bin")
 
 
 def remote_checksum(url: str, max_bytes: int) -> tuple[str, int]:

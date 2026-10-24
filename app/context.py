@@ -177,6 +177,25 @@ class Context:
             self.apply_module(pkg_id, info["module"])
         return info
 
+    async def import_url(self, pkg_id: str, url: str = "") -> dict[str, Any]:
+        """Télécharge le fichier d'un lien et le traite comme un envoi (reconnaissance et renommage
+        des ROM, conversion des packs, sha256) : le shop l'héberge ensuite lui-même."""
+        pkg = self.get_or_404(pkg_id)
+        url = (url or pkg["url"]).strip()
+        try:
+            tmp, name = await run_in_threadpool(storage.download, url, self.settings.files_dir / pkg_id, self.max_bytes)
+        except storage.UploadTooLarge:
+            raise HTTPException(413, f"Fichier trop gros (max {self.settings.max_upload_mb} Mo).")
+        except Exception as e:  # réseau, 404, URL invalide…
+            raise HTTPException(502, f"Téléchargement impossible : {e}")
+        try:
+            with tmp.open("rb") as f:
+                info = await self.store_upload(pkg_id, UploadFile(file=f, filename=name), {"url": ""})
+        finally:
+            tmp.unlink(missing_ok=True)
+        info["imported_from"] = url
+        return info
+
     def _rom_name(self, rel: str, console: str) -> tuple[str, bool]:
         """Nom officiel No-Intro (CRC32) de la ROM envoyée, sinon nom nettoyé."""
         rom = romnames.read_rom(self.settings.files_dir / rel, set(covers.EXTENSIONS))

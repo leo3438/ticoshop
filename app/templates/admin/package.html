@@ -68,7 +68,8 @@
       </div>
       <div data-source="url">
         <label>URL de téléchargement <input name="url" type="url" value="{{ p.url or '' }}" placeholder="https://github.com/…/releases/download/…/fichier.zip"></label>
-        <label class="check"><input type="checkbox" name="compute_checksum"> Télécharger le fichier maintenant pour calculer sha256 et taille</label>
+        <label class="check"><input type="checkbox" name="import_to_shop"> <strong>Importer sur le shop</strong> : télécharger le fichier, le reconnaître / renommer (ROM, packs) et l'héberger ici</label>
+        <label class="check"><input type="checkbox" name="compute_checksum"> Seulement calculer sha256 et taille (le fichier reste sur le lien)</label>
       </div>
       <div data-source="magnet">
         <label>Lien magnet <input name="magnet" value="{{ p.magnet or '' }}" placeholder="magnet:?xt=urn:btih:…"></label>

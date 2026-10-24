@@ -10,6 +10,7 @@
 #   ticoshop set ID clé=valeur…                 modifie un paquet
 #   ticoshop upload ID FICHIER [VERSION]        envoie le fichier (sha256 auto ; l'ancien va dans l'historique)
 #   ticoshop media ID icon|banner|screenshot IMAGE
+#   ticoshop import ID [URL]                    télécharge le lien, reconnaît/renomme et l'héberge sur le shop
 #   ticoshop cover ID [NOM] [CONSOLE]           cherche jaquette, écran titre et capture (libretro)
 #   ticoshop checksum ID                        calcule sha256/taille d'un paquet « url »
 #   ticoshop github ID OWNER/REPO [MOTIF]       lie le paquet aux releases GitHub et le met à jour
@@ -52,7 +53,7 @@ load_config() {
 
 die() { echo "❌ $*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null || die "$1 est requis."; }
-usage() { sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 api() {
   local method="$1" path="$2"; shift 2
@@ -132,6 +133,12 @@ case "$cmd" in
   media)
     [[ $# -eq 3 && -f "$3" ]] || die "Usage : media ID icon|banner|screenshot IMAGE"
     api POST "/api/packages/$1/media" -F "kind=$2" -F "file=@$3" >/dev/null && echo "✔ $2 envoyé" ;;
+  import)
+    [[ $# -ge 1 ]] || die "Usage : import ID [URL]"
+    api POST "/api/packages/$1/import" -H 'Content-Type: application/json' -d "$(jq -n --arg u "${2:-}" '{url: $u}')" \
+      | jq -r '"✔ \(.id) importé : \(.filename) (\(.size) octets)"
+               + (if .rom_path != "" then "\n  ROM \(if .identified then "reconnue" else "nettoyée" end) : \(.rom_path)" else "" end)
+               + (if .pack then "\n  pack : \(.pack.consoles | length) console(s)" else "" end)' ;;
   cover)
     [[ $# -ge 1 ]] || die "Usage : cover ID [NOM_DU_JEU] [CONSOLE]"
     body=$(jq -n --arg n "${2:-}" --arg c "${3:-}" '{name: $n, console: $c, force: true}')

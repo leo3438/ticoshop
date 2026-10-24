@@ -165,25 +165,15 @@ def register(app: FastAPI, ctx: Context) -> None:
             # Fichier et champs du formulaire dans la même mise à jour (historique cohérent).
             values.pop("sha256", None)
             info = await ctx.store_upload(pkg_id, upload, values)  # type: ignore[arg-type]
-            module, pack = info["module"], info["pack"]
-            if info["rom_path"]:
-                how = "reconnue (No-Intro)" if info.get("identified") else "nom nettoyé, ROM non reconnue par son CRC"
-                request.session["flash"] = (f"ROM {how} et emballée dans un zip ({info['rom_path']}) : "
-                                            "c'est le format que tico installe.")
-            if pack:
-                parts = [f"{len(pack['consoles'])} console(s)"] + [f"{n} {k}" for k, n in pack["counts"].items() if n]
-                if pack["colors"]:
-                    parts.append("couleurs")
-                msg = f"Pack converti au format tico 0.8 : {', '.join(parts)}."
-                if pack.get("soundpack_packages"):
-                    msg += f" Soundpack livré avec : paquet « {', '.join(pack['soundpack_packages'])} » créé."
-                request.session["flash"] = msg
-            if module:
-                consoles = ", ".join(s["title"] for s in module["systems"]) or "aucune console déclarée"
-                request.session["flash"] = f"Module tico « {module['name']} » détecté ({consoles}) : fiche pré-remplie."
+            upload_flash(request, info)
         else:
             db.update_package(pkg_id, values)
-        if values["source"] == "url" and form.get("compute_checksum"):
+        if values["source"] == "url" and form.get("import_to_shop"):
+            try:
+                upload_flash(request, await ctx.import_url(pkg_id))
+            except HTTPException as e:
+                return package_page(request, ctx.get_or_404(pkg_id), str(e.detail), e.status_code)
+        elif values["source"] == "url" and form.get("compute_checksum"):
             try:
                 await ctx.fetch_checksum(ctx.get_or_404(pkg_id))
             except HTTPException as e:
@@ -347,6 +337,31 @@ def register(app: FastAPI, ctx: Context) -> None:
             age = (time.time() - backups[0]["time"]) / 3600
             add("ok" if age < settings.backup_hours * 2 else "warn", "Dernière sauvegarde", f"il y a {age:.0f} h ({backups[0]['name']})")
         return ctx.render(request, "admin/diagnostic.html", checks=checks, diag_url=f"{base}/diag/index.json")
+
+
+def upload_flash(request: Request, info: dict[str, Any]) -> None:
+    """Message affiché après un envoi : ce que ticoshop a reconnu ou converti."""
+    msgs = []
+    if info.get("imported_from"):
+        msgs.append("Fichier du lien importé sur le shop.")
+    if info.get("rom_path"):
+        how = "reconnue (No-Intro)" if info.get("identified") else "nom nettoyé, ROM non reconnue par son CRC"
+        msgs.append(f"ROM {how} et emballée dans un zip ({info['rom_path']}) : c'est le format que tico installe.")
+    pack = info.get("pack")
+    if pack:
+        parts = [f"{len(pack['consoles'])} console(s)"] + [f"{n} {k}" for k, n in pack["counts"].items() if n]
+        if pack["colors"]:
+            parts.append("couleurs")
+        msg = f"Pack converti au format tico 0.8 : {', '.join(parts)}."
+        if pack.get("soundpack_packages"):
+            msg += f" Soundpack livré avec : paquet « {', '.join(pack['soundpack_packages'])} » créé."
+        msgs.append(msg)
+    module = info.get("module")
+    if module:
+        consoles = ", ".join(s["title"] for s in module["systems"]) or "aucune console déclarée"
+        msgs.append(f"Module tico « {module['name']} » détecté ({consoles}) : fiche pré-remplie.")
+    if msgs:
+        request.session["flash"] = " ".join(msgs)
 
 
 def probe(url: str) -> tuple[bool, str]:

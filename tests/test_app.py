@@ -752,3 +752,58 @@ def test_rename_script(tmp_path):
     names = sorted(p.name for p in gb.iterdir())
     assert names == ["Pokemon (France).gb", "Tetris (World) (Rev 1).gb", "Tetris (World) (Rev 1).zip", "notes.txt"]
     assert "3 ROM, 2 reconnues par CRC, 3 renommées" in out
+
+
+class FakeResponse(io.BytesIO):
+    def __init__(self, data, url, filename=""):
+        super().__init__(data)
+        self._url = url
+        import email.message
+        self.headers = email.message.Message()
+        if filename:
+            self.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+
+    def geturl(self):
+        return self._url
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        self.close()
+
+
+def test_import_from_link_renames_rom(client, tmp_path, monkeypatch):
+    import urllib.request
+
+    (tmp_path / "dats").mkdir()
+    (tmp_path / "dats" / "Nintendo - Game Boy.dat").write_text(tetris_dat())
+    served = {"https://cdn.example/files/t%C3%A9tris_v11.gb": b"TETRISGB",
+              "https://cdn.example/dl?id=42": make_pack_zip()}
+
+    def fake_urlopen(req, timeout=0):
+        url = req.full_url
+        if url not in served:
+            raise urllib.error.HTTPError(url, 404, "Not Found", None, None)
+        return FakeResponse(served[url], url, "pack.zip" if "dl?id" in url else "")
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    client.post("/api/packages", headers=auth(), json={
+        "id": "tetris", "category": "game", "source": "url", "url": "https://cdn.example/files/t%C3%A9tris_v11.gb"})
+    r = client.post("/api/packages/tetris/import", headers=auth()).json()
+    assert r["source"] == "upload" and r["url"] == "" and r["identified"]
+    assert r["rom_path"] == "tico/roms/gb/Tetris (World) (Rev 1).gb" and r["imported_from"].endswith("v11.gb")
+    entry = client.get("/index.json").json()["packages"][0]
+    assert entry["url"].startswith("https://shop.test/files/tetris/") and "install" not in entry
+
+    # un pack via un lien de téléchargement (nom donné par Content-Disposition)
+    client.post("/api/packages", headers=auth(), json={"id": "pack", "category": "consolepack"})
+    r = client.post("/api/packages/pack/import", headers=auth(), json={"url": "https://cdn.example/dl?id=42"}).json()
+    assert r["pack"]["consoles"] == ["gba", "snes"] and r["install"] == "tico/theme/consolepacks/pack"
+
+    # lien mort : erreur claire, le paquet n'est pas modifié
+    client.post("/api/packages", headers=auth(), json={"id": "mort", "source": "url", "url": "https://cdn.example/x.gb"})
+    r = client.post("/api/packages/mort/import", headers=auth())
+    assert r.status_code == 502 and "Téléchargement impossible" in r.json()["detail"]
+    assert client.get("/api/packages/mort", headers=auth()).json()["source"] == "url"
+    assert not list((tmp_path / "files").rglob(".download-*"))

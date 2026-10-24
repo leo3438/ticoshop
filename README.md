@@ -151,6 +151,7 @@ Uniquement des jeux que vous avez le droit de distribuer : homebrews, jeux gratu
 tico trouve les jaquettes et les titres d'après le **nom** du jeu. Un fichier nommé `pkmn_crystal_FR_apfix.gbc` ne donne rien, alors que `Pokemon - Version Cristal (France).gbc` est trouvé. ticoshop **identifie chaque ROM par son CRC32** dans les bases **No-Intro** de libretro-database (téléchargées une fois, puis gardées en cache) :
 
 - **À l'envoi dans le shop** : la ROM est renommée avec son nom officiel avant d'être emballée. Le nom du paquet devient le titre sans les tags. Si la ROM n'est pas reconnue, son nom est nettoyé : `_` → espaces, `(E)` → `(Europe)`, et `[!]`, `_apfix` ou les numéros de release sont retirés. Pour désactiver : `TICOSHOP_ROM_RENAME=0`.
+- **Depuis un lien** : avec la source « URL externe », cochez **Importer sur le shop**, ou lancez `./scripts/ticoshop import ID [URL]`. Le shop télécharge le fichier une fois et le traite comme un envoi (reconnaissance, renommage, emballage, conversion des packs), puis l'héberge lui-même. Sans import, c'est la Switch qui télécharge directement le lien, sous le nom que lui donne l'hébergeur.
 - **Sur votre carte SD ou un dossier de ROM**, avec `scripts/rename-roms.py` (Python 3, sans dépendance) :
   ```bash
   ./scripts/rename-roms.py /media/$USER/SWITCH            # parcourt tico/roms/<console>/, sans rien modifier
