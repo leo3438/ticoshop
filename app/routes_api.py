@@ -86,8 +86,8 @@ def register(app: FastAPI, ctx: Context) -> None:
         """version / changelog (facultatifs) sont appliqués avec le fichier, en une fois."""
         ctx.get_or_404(pkg_id)
         values = {k: v for k, v in (("version", version), ("changelog", changelog)) if v is not None}
-        module = await ctx.store_upload(pkg_id, file, values)
-        return {**ctx.get_or_404(pkg_id), "module": module}
+        module, wrapped = await ctx.store_upload(pkg_id, file, values)
+        return {**ctx.get_or_404(pkg_id), "module": module, "rom_path": wrapped}
 
     @app.post("/api/packages/{pkg_id}/media", tags=["api"], dependencies=api)
     async def api_media(pkg_id: str, kind: str = Form(...), file: UploadFile = File(...)):

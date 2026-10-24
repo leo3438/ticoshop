@@ -13,7 +13,7 @@ from . import covers, notify, storage
 from .config import Settings
 from .db import Database
 from .i18n import LANGS, pick_lang, translator
-from .index import CATEGORIES, TYPES, build_index
+from .index import CATEGORIES, TYPES, build_index, category_of
 from .security import LoginLimiter, verify_password
 
 APP_DIR = Path(__file__).parent
@@ -118,11 +118,13 @@ class Context:
         return pkg
 
     async def store_upload(self, pkg_id: str, upload: UploadFile,
-                           values: dict[str, Any] | None = None) -> dict[str, Any] | None:
-        """Enregistre le fichier (et « values » dans la même mise à jour) ;
-        si c'est un module tico, pré-remplit le paquet.
+                           values: dict[str, Any] | None = None) -> tuple[dict[str, Any] | None, str]:
+        """Enregistre le fichier (et « values » dans la même mise à jour).
 
-        Renvoie les infos du module.json trouvé, ou None.
+        - Module tico : pré-remplit le paquet d'après son module.json.
+        - ROM : l'emballe dans un zip « tico/roms/<console>/<nom> » ; tico 0.8 masque les
+          paquets « type: rom » des dépôts communautaires mais installe ce zip.
+        Renvoie (infos du module.json ou None, chemin de la ROM dans le zip ou "").
         """
         try:
             rel, sha, size = await run_in_threadpool(
@@ -131,15 +133,29 @@ class Context:
             )
         except storage.UploadTooLarge:
             raise HTTPException(413, f"Fichier trop gros (max {self.settings.max_upload_mb} Mo).")
+        values = dict(values or {})
+        pkg = {**self.get_or_404(pkg_id), **values}
+        wrapped = ""
+        if (pkg["type"] == "rom" or category_of(pkg) == "game") and not pkg.get("keep_archive"):
+            _, ext = covers.rom_name(rel, self.settings.files_dir / rel)
+            console = pkg.get("console") or covers.guess_console(ext)
+            if console:
+                res = await run_in_threadpool(storage.wrap_rom, self.settings.files_dir, pkg_id, rel, console,
+                                              set(covers.EXTENSIONS))
+                if res:
+                    rel, sha, size, rom = res
+                    wrapped = f"tico/roms/{console}/{rom}"
+                    values.update(type="zip", console=console, install="", keep_archive=False,
+                                  extract_to_folder=False)
         self.db.set_local_file(pkg_id, rel, Path(rel).name, sha, size, values)
         if self.settings.auto_covers:
             await self.auto_covers(pkg_id)
         module = None
-        if rel.lower().endswith(".zip"):
+        if not wrapped and rel.lower().endswith(".zip"):
             module = await run_in_threadpool(storage.inspect_module, self.settings.files_dir / rel)
         if module:
             self.apply_module(pkg_id, module)
-        return module
+        return module, wrapped
 
     async def auto_covers(self, pkg_id: str) -> None:
         """À l'envoi d'une ROM : devine la console et ajoute la jaquette si le paquet n'en a pas."""

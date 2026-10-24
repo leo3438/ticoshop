@@ -164,7 +164,9 @@ def register(app: FastAPI, ctx: Context) -> None:
         if values["source"] == "upload" and isinstance(upload, StarletteUpload) and upload.filename:
             # Fichier et champs du formulaire dans la même mise à jour (historique cohérent).
             values.pop("sha256", None)
-            module = await ctx.store_upload(pkg_id, upload, values)  # type: ignore[arg-type]
+            module, wrapped = await ctx.store_upload(pkg_id, upload, values)  # type: ignore[arg-type]
+            if wrapped:
+                request.session["flash"] = f"ROM emballée dans un zip ({wrapped}) : c'est le format que tico installe."
             if module:
                 consoles = ", ".join(s["title"] for s in module["systems"]) or "aucune console déclarée"
                 request.session["flash"] = f"Module tico « {module['name']} » détecté ({consoles}) : fiche pré-remplie."

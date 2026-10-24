@@ -133,7 +133,7 @@ Les règles sont celles de la doc officielle, [Creating a Store Repository](http
 |---|---|---|
 | `.nro` | `switch/<id>/<id>.nro` | `<dossier>/<id>.nro` |
 | zip | déployé **depuis la racine de la SD** : n'écrit que dans `switch/<id>/`, `tico/ports/<id>/` ou `tico/roms/` | extrait dans le dossier ; tico demande confirmation |
-| ROM brute (`type: rom`) | `tico/roms/<console>` (choisissez la console) | dans le dossier, sous son nom de fichier |
+| ROM (catégorie Jeu) | emballée par ticoshop dans un zip `tico/roms/<console>/<nom>` | — |
 | soundpack | `tico/theme/soundpacks/<id>` (seul dossier autorisé) | — |
 | module | `tico/modules/<id>`, à laisser vide | — |
 
@@ -142,10 +142,10 @@ Les dossiers système sont interdits : la racine, `atmosphere`, `bootloader`, `n
 ### Jeux et ROM
 Uniquement des jeux que vous avez le droit de distribuer : homebrews, jeux gratuits dont la licence l'autorise, domaine public.
 
-- **ROM brute** (`.gb`, `.gba`, `.nes`…, 64 Mio au maximum) : choisissez le type **ROM brute** et la **console**. ticoshop publie alors `install: tico/roms/<console>`, `filename`, `size` et le tag de console : tico **écarte** une ROM à laquelle il manque l'un de ces champs. Le nom de fichier d'origine (No-Intro) est conservé.
-- **Jeu lu zippé** par l'émulateur : type **zip**, dossier `tico/roms/<console>`, cochez **Garder l'archive entière** (`extract: false`).
-- **Jeu en plusieurs fichiers** (`.cue` + `.bin`) : type **zip**, dossier `tico/roms/<console>`, cochez **Extraire dans un sous-dossier**. Dans tico, activez Réglages › Général › Scan Subfolders.
-- La **console** devient le premier tag. tico range les jeux et ports en rayons par console, d'après un nom ou un slug (`gba`, `snes`, `psx`/`playstation`…). tico ne lit que 2 tags.
+- **Envoyez simplement la ROM** (`.gb`, `.gba`, `.nes`…, ou un zip qui ne contient qu'elle), avec la catégorie **Jeu**. ticoshop devine la console d'après l'extension (sinon, choisissez-la), puis l'**emballe dans un zip** `tico/roms/<console>/<nom d'origine>`. C'est le format que tico 0.8 installe. Constaté sur Switch : tico masque les paquets `type: "rom"` venant d'un dépôt communautaire, alors que ce zip s'installe et le jeu apparaît dans Jeux.
+- **Jeu lu zippé** par l'émulateur : type **zip**, dossier `tico/roms/<console>`, cochez **Garder l'archive entière** (`extract: false`). ticoshop ne réemballe pas ce zip.
+- **Jeu en plusieurs fichiers** (`.cue` + `.bin`) : préparez un zip `tico/roms/<console>/<Jeu>/…`, ou utilisez un dossier d'installation `tico/roms/<console>` avec **Extraire dans un sous-dossier**. Dans tico, activez Réglages › Général › Scan Subfolders.
+- La **console** devient le premier tag. tico range les jeux en rayons par console, d'après un nom ou un slug (`gba`, `snes`, `psx`/`playstation`…). tico ne lit que 2 tags.
 
 ### Notifications Discord
 Créez un webhook (Paramètres du salon › Intégrations › Webhooks), puis mettez son URL dans `TICOSHOP_WEBHOOK_URL`. Une notification est envoyée quand un paquet devient disponible ou change de version. Toute autre URL reçoit un JSON `{"event": "new"|"update", "package": {...}, "page", "index"}`.

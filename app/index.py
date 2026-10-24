@@ -43,7 +43,7 @@ LEGACY_CATEGORIES = {"homebrew": "app", "tool": "app", "other": "app", "emulator
 TYPES = {
     "zip": "Archive zip",
     "nro": "Homebrew .nro",
-    "rom": "ROM brute (.gba, .nes…)",
+    "rom": "ROM (convertie en zip à l'envoi)",
     "module": "Module tico (émulateur)",
 }
 
@@ -223,6 +223,9 @@ def validate_package(pkg: dict[str, Any], files_dir: Path | None = None) -> list
         problems.append("« Garder l'archive entière » et « Extraire dans un sous-dossier » exigent un dossier d'installation.")
 
     if pkg["type"] == "rom":
+        problems.append("tico 0.8 masque les paquets « type: rom » d'un dépôt communautaire (constaté sur Switch) : "
+                        "choisissez la console puis renvoyez le fichier, ticoshop l'emballera dans un zip "
+                        "tico/roms/<console>/ que tico installe.")
         if not install:
             problems.append("ROM : choisissez la console (ou un dossier d'installation, ex. tico/roms/gba) : tico l'exige.")
         name = pkg["filename"] or ""
@@ -259,6 +262,8 @@ def validate_package(pkg: dict[str, Any], files_dir: Path | None = None) -> list
         names = storage.zip_entries(files_dir / pkg["local_file"])
         if names is None:
             problems.append("Le fichier envoyé n'est pas un zip valide : choisissez le bon type (nro, rom…).")
+        elif not names:
+            problems.append("Le zip envoyé est vide.")
         else:
             allowed = (f"switch/{pkg['id']}/", f"tico/ports/{pkg['id']}/", "tico/roms/")
             outside = [n for n in names if not n.startswith(allowed)]

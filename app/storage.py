@@ -66,6 +66,45 @@ def delete_package_files(files_dir: Path, pkg_id: str) -> None:
     shutil.rmtree(files_dir / pkg_id, ignore_errors=True)
 
 
+def wrap_rom(files_dir: Path, pkg_id: str, src_rel: str, console: str, rom_exts: set[str]) -> tuple[str, str, int, str] | None:
+    """Emballe une ROM dans un zip « tico/roms/<console>/<nom> » (format accepté par tico 0.8).
+
+    src_rel : ROM brute, ou zip contenant une seule ROM. Renvoie (chemin relatif du
+    zip, sha256, taille, nom de la ROM), ou None si ce n'est pas une ROM reconnue.
+    """
+    src = files_dir / src_rel
+    member = None
+    if src.suffix.lower() == ".zip":
+        names = zip_entries(src) or []
+        roms = [n for n in names if Path(n).suffix.lower() in rom_exts]
+        if len(roms) != 1 or len(names) != 1:
+            return None  # déjà organisé, ou plusieurs fichiers : on n'y touche pas
+        member = roms[0]
+        rom_name = safe_filename(Path(member).name)
+    elif src.suffix.lower() in rom_exts:
+        rom_name = src.name
+    else:
+        return None
+    token = uuid.uuid4().hex[:12]
+    dest = files_dir / pkg_id / token / f"{Path(rom_name).stem}.zip"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    arcname = f"tico/roms/{console}/{rom_name}"
+    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as out:
+        if member is None:
+            out.write(src, arcname)
+        else:
+            with zipfile.ZipFile(src) as zin, zin.open(member) as data, out.open(arcname, "w") as target:
+                shutil.copyfileobj(data, target, CHUNK)
+    digest = hashlib.sha256()
+    with dest.open("rb") as f:
+        while chunk := f.read(CHUNK):
+            digest.update(chunk)
+    src.unlink(missing_ok=True)
+    if not any(src.parent.iterdir()):
+        src.parent.rmdir()
+    return f"{pkg_id}/{token}/{dest.name}", digest.hexdigest(), dest.stat().st_size, rom_name
+
+
 def zip_entries(path: Path) -> list[str] | None:
     """Fichiers d'un zip (sans les dossiers), ou None si ce n'est pas un zip lisible."""
     try:

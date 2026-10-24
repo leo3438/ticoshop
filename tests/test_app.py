@@ -529,11 +529,16 @@ def test_index_follows_spec(client):
     client.post("/api/packages/app1/file", headers=auth(), files={"file": ("a.nro", b"NRO0")})
     entries = {e["id"]: e for e in client.get("/index.json").json()["packages"]}
 
+    # tico 0.8 masque « type: rom » : la ROM est emballée dans tico/roms/<console>/
     rom = entries["rom-gba"]
-    assert rom["type"] == "rom" and rom["tags"] == ["gba"] and rom["install"] == "tico/roms/gba"
-    assert rom["filename"] == "Mon Jeu (USA).gba" and rom["size"] == 100
-    assert rom["url"].endswith("/files/rom-gba/Mon%20Jeu%20%28USA%29.gba")
-    assert client.get(rom["url"].replace("https://shop.test", "")).content == b"r" * 100
+    assert rom["type"] == "zip" and rom["tags"] == ["gba"] and "install" not in rom
+    assert rom["url"].endswith("/files/rom-gba/Mon%20Jeu%20%28USA%29.zip")
+    data = client.get(rom["url"].replace("https://shop.test", "")).content
+    assert hashlib.sha256(data).hexdigest() == rom["sha256"] and len(data) == rom["size"]
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        assert zf.namelist() == ["tico/roms/gba/Mon Jeu (USA).gba"]
+        assert zf.read("tico/roms/gba/Mon Jeu (USA).gba") == b"r" * 100
+    assert client.get("/api/packages/rom-gba", headers=auth()).json()["problems"] == []
     z = entries["zipped"]
     assert z["extract"] is False and z["filename"] == "Game.zip" and z["tags"] == ["snes"]
     assert entries["sounds"]["install"] == "tico/theme/soundpacks/sounds"
@@ -556,3 +561,39 @@ def test_covers_server_unreachable(client, monkeypatch):
     assert r.status_code == 200 and r.json()["console"] == "gba"
     r = client.post("/api/packages/u/covers", headers=auth(), json={})
     assert r.status_code == 502 and "injoignable" in r.json()["detail"]
+
+
+
+def test_rom_zip_rewrapped(client, tmp_path):
+    """Le cas qui échouait sur la Switch : un zip avec la ROM à sa racine."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("Hermano (World).gb", b"g" * 64)
+    client.post("/api/packages", headers=auth(), json={"id": "hermano", "category": "game"})
+    r = client.post("/api/packages/hermano/file", headers=auth(), files={"file": ("hermano.zip", buf.getvalue())}).json()
+    assert r["rom_path"] == "tico/roms/gb/Hermano (World).gb" and r["type"] == "zip" and r["console"] == "gb"
+    with zipfile.ZipFile(tmp_path / "files" / r["local_file"]) as zf:
+        assert zf.namelist() == ["tico/roms/gb/Hermano (World).gb"]
+    assert len(list((tmp_path / "files" / "hermano").rglob("*"))) == 2  # dossier + zip final, l'original est supprimé
+    assert client.get("/api/packages/hermano", headers=auth()).json()["problems"] == []
+    assert client.get("/api/packages/hermano/releases", headers=auth()).json() == []
+
+
+def test_rom_without_console_left_as_is(client):
+    client.post("/api/packages", headers=auth(), json={"id": "iso", "category": "game"})
+    r = client.post("/api/packages/iso/file", headers=auth(), files={"file": ("disc.iso", b"x")}).json()
+    assert r["rom_path"] == "" and r["filename"] == "disc.iso"
+    assert any("ajoutez la console" in p for p in client.get("/api/packages/iso", headers=auth()).json()["problems"])
+
+
+
+def test_keep_archive_not_rewrapped(client):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("Game (USA).sfc", b"s")
+    client.post("/api/packages", headers=auth(), json={
+        "id": "kept", "category": "game", "console": "snes", "keep_archive": True, "install": "tico/roms/snes"})
+    r = client.post("/api/packages/kept/file", headers=auth(), files={"file": ("Game (USA).zip", buf.getvalue())}).json()
+    assert r["rom_path"] == "" and r["filename"] == "Game (USA).zip"
+    entry = client.get("/index.json").json()["packages"][0]
+    assert entry["extract"] is False and entry["install"] == "tico/roms/snes"
