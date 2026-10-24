@@ -27,9 +27,9 @@
 #
 # Clés : name version author category type tags tagline description changelog
 #        source(upload|url|magnet) url magnet torrent_file filename sha256 size
-#        install extract featured published extract_to_folder
+#        install keep_archive featured published extract_to_folder
 #        github_repo github_asset auto_update console (gba, snes, nds… : voir « cover »)
-#   category : emulator app homebrew game port fangame soundpack consolepack tool other
+#   category : app game port soundpack consolepack
 #   type     : zip nro rom module
 #   tags=a,b,c  ·  featured=true  ·  description=@fichier.md (lit le fichier)
 set -euo pipefail
@@ -80,7 +80,7 @@ kv_json() {
       val="$(cat "${val#@}")"
     fi
     case "$key" in
-      featured|published|extract|extract_to_folder|auto_update|publish_versions)
+      featured|published|keep_archive|extract_to_folder|auto_update|publish_versions)
         [[ "$val" =~ ^(true|false|1|0|oui|non)$ ]] || die "$key attend true ou false"
         json=$(jq --arg k "$key" --arg v "$val" '.[$k] = ($v | test("^(true|1|oui)$"))' <<<"$json") ;;
       size)

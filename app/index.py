@@ -1,50 +1,81 @@
 """Génération du index.json lu par le Store de tico (0.8.0+).
 
-Le format a été relevé dans tico 0.8.0 (« Creating a Store Repository ») :
+Référence : « Creating a Store Repository » (forum.ticoverse.com/topic/150).
 
     {
-      "schema": 1,                     # tico refuse > 1 (« Needs a newer tico »)
-      "name", "description", "maintainer", "website", "icon", "cover",
+      "schema": 1,
+      "name", "description", "icon", "cover",
       "packages": [
         {
-          "id", "name", "version", "author", "category", "tags",
-          "tagline", "description", "changelog", "icon", "banner",
-          "screenshots", "featured",
-          "type",                      # zip | nro | rom | module
-          "url" | "magnet" (+ "file"), "filename", "sha256", "size",
-          "install", "extract", "extract_to_folder"
+          "id", "name", "category" (app | game | port | soundpack), "tags" (2 max),
+          "version", "author", "tagline", "description", "changelog",
+          "icon", "banner", "screenshots" (8 max), "featured",
+          "type" (zip | nro | module | rom), "url" | "magnet" (+ "file"),
+          "size", "sha256", "install", "extract", "extract_to_folder", "filename"
         }
       ]
     }
 
-Toute la correspondance base -> JSON est ici : si une version de tico
-change un nom de champ, c'est le seul fichier à adapter. Le champ « extra »
-de chaque paquet est fusionné tel quel pour les champs non gérés.
+tico écarte silencieusement un paquet invalide (id, url, type non autorisé,
+checksum mal formé, ROM sans install/filename/size) : validate_package()
+signale ces cas dans l'admin. Le champ « extra » de chaque paquet est fusionné
+tel quel pour les champs non gérés.
 """
+from pathlib import Path
 from typing import Any
+from urllib.parse import quote
+
+from . import storage
 
 SCHEMA_VERSION = 1
 
+# Catégories du Store de tico.
 CATEGORIES = {
-    "emulator": "Émulateur",
-    "app": "Application",
-    "homebrew": "Homebrew",
+    "app": "Application / homebrew",
     "game": "Jeu",
     "port": "Port",
-    "fangame": "Fan game",
     "soundpack": "Soundpack",
     "consolepack": "Console pack",
-    "tool": "Outil",
-    "other": "Autre",
 }
+# Anciennes catégories de ticoshop, ramenées à celles de tico.
+LEGACY_CATEGORIES = {"homebrew": "app", "tool": "app", "other": "app", "emulator": "app", "fangame": "game"}
 
 TYPES = {
-    "zip": "Archive zip (extraite)",
+    "zip": "Archive zip",
     "nro": "Homebrew .nro",
-    "rom": "ROM / jeu",
+    "rom": "ROM brute (.gba, .nes…)",
     "module": "Module tico (émulateur)",
 }
 
+# Dossiers où tico refuse toujours d'installer (en plus de la racine de la carte).
+SYSTEM_FOLDERS = ("atmosphere", "bootloader", "nintendo", "emummc", "switch/tico",
+                  "tico/system", "tico/modules", "tico/store", "tico/config")
+ROM_MAX_SIZE = 64 * 1024 * 1024
+
+
+def category_of(pkg: dict[str, Any]) -> str:
+    return LEGACY_CATEGORIES.get(pkg["category"], pkg["category"]) or "app"
+
+
+def tags_of(pkg: dict[str, Any]) -> list[str]:
+    """Tags publiés : la console d'abord (rayon par console pour les jeux et ports), 2 au maximum."""
+    tags = [t for t in pkg["tags"] if t]
+    console = pkg.get("console") or ""
+    if console and console not in tags and (category_of(pkg) in ("game", "port") or pkg["type"] == "rom"):
+        tags.insert(0, console)
+    return tags[:2]
+
+
+def install_of(pkg: dict[str, Any]) -> str:
+    """Dossier d'installation publié ; valeurs par défaut là où tico en exige un."""
+    install = (pkg["install"] or "").strip().strip("/")
+    if install:
+        return install
+    if pkg["type"] == "rom" and pkg.get("console"):
+        return f"tico/roms/{pkg['console']}"
+    if category_of(pkg) == "soundpack":
+        return f"tico/theme/soundpacks/{pkg['id']}"
+    return ""
 
 
 def absolute(base_url: str, value: str) -> str:
@@ -58,7 +89,7 @@ def absolute(base_url: str, value: str) -> str:
 
 def package_download_url(base_url: str, pkg: dict[str, Any]) -> str:
     if pkg["source"] == "upload" and pkg.get("local_file"):
-        return f"{base_url}/files/{pkg['id']}/{pkg['filename']}"
+        return f"{base_url}/files/{pkg['id']}/{quote(pkg['filename'])}"
     if pkg["source"] == "url":
         return pkg["url"]
     return ""
@@ -67,7 +98,7 @@ def package_download_url(base_url: str, pkg: dict[str, Any]) -> str:
 def release_download_url(base_url: str, pkg_id: str, rel: dict[str, Any]) -> str:
     """URL d'une ancienne version (voir l'historique des versions)."""
     if rel["source"] == "upload" and rel.get("local_file"):
-        return f"{base_url}/files/{pkg_id}/r/{rel['rid']}/{rel['filename']}"
+        return f"{base_url}/files/{pkg_id}/r/{rel['rid']}/{quote(rel['filename'])}"
     if rel["source"] == "url":
         return rel["url"]
     return ""
@@ -84,21 +115,20 @@ def build_package(base_url: str, pkg: dict[str, Any], download_url: str | None =
     entry: dict[str, Any] = {
         "id": pkg["id"],
         "name": pkg["name"],
-        "version": pkg["version"],
-        "author": pkg["author"],
-        "category": pkg["category"],
+        "category": category_of(pkg),
         "type": pkg["type"],
     }
-    if pkg["tags"]:
-        entry["tags"] = pkg["tags"]
-    for key in ("tagline", "description", "changelog"):
+    tags = tags_of(pkg)
+    if tags:
+        entry["tags"] = tags
+    for key in ("version", "author", "tagline", "description", "changelog"):
         if pkg[key]:
             entry[key] = pkg[key]
     for key in ("icon", "banner"):
         if pkg[key]:
             entry[key] = absolute(base_url, pkg[key])
     if pkg["screenshots"]:
-        entry["screenshots"] = [absolute(base_url, s) for s in pkg["screenshots"]]
+        entry["screenshots"] = [absolute(base_url, s) for s in pkg["screenshots"][:8]]
     if pkg["featured"]:
         entry["featured"] = True
 
@@ -108,18 +138,20 @@ def build_package(base_url: str, pkg: dict[str, Any], download_url: str | None =
             entry["file"] = pkg["torrent_file"]
     else:
         entry["url"] = package_download_url(base_url, pkg) if download_url is None else download_url
-    if pkg["filename"]:
-        entry["filename"] = pkg["filename"]
-    if pkg["sha256"]:
-        entry["sha256"] = pkg["sha256"].lower()
     if pkg["size"]:
         entry["size"] = int(pkg["size"])
-    if pkg["install"]:
-        entry["install"] = pkg["install"].strip("/")
-    if pkg["extract"]:
-        entry["extract"] = True
-    if pkg["extract_to_folder"]:
+    if pkg["sha256"]:
+        entry["sha256"] = pkg["sha256"].lower()
+    install = install_of(pkg)
+    if install:
+        entry["install"] = install
+    keep = pkg["type"] == "zip" and pkg.get("keep_archive")
+    if keep:
+        entry["extract"] = False  # tico extrait par défaut
+    if pkg["extract_to_folder"] and pkg["type"] == "zip" and not keep:
         entry["extract_to_folder"] = True
+    if pkg["filename"] and (pkg["type"] == "rom" or keep):
+        entry["filename"] = pkg["filename"]
 
     entry.update(pkg.get("extra") or {})
     return entry
@@ -159,50 +191,85 @@ def build_index(
     return index
 
 
-def allowed_root(pkg: dict[str, Any]) -> str:
-    """Dossier où tico (0.8) accepte qu'un dépôt communautaire installe ce paquet.
-
-    Relevé dans tico.nro : en dehors, l'installation échoue avec « Ce paquet
-    tente d'écrire hors des dossiers autorisés pour les paquets de la communauté ».
-    """
-    if pkg["type"] == "module":
-        return f"tico/modules/{pkg['id']}"
-    if pkg["type"] == "rom":
-        return "tico/roms"
-    if pkg["category"] == "soundpack":
-        return f"tico/theme/soundpacks/{pkg['id']}"
-    if pkg["category"] == "consolepack":
-        return f"tico/theme/consolepacks/{pkg['id']}"
-    if pkg["category"] == "port":
-        return "tico/ports"
-    return f"switch/{pkg['id']}"
+def _under(path: str, folder: str) -> bool:
+    return path == folder or path.startswith(folder + "/")
 
 
-def validate_package(pkg: dict[str, Any]) -> list[str]:
-    """Problèmes qui empêcheraient tico d'installer le paquet."""
+def validate_package(pkg: dict[str, Any], files_dir: Path | None = None) -> list[str]:
+    """Problèmes qui feraient écarter ou refuser le paquet par tico (et quelques conseils)."""
     problems = []
+    category = category_of(pkg)
     if pkg["source"] == "upload" and not pkg.get("local_file"):
         problems.append("Aucun fichier envoyé : le paquet n'apparaît pas dans index.json.")
     if pkg["source"] == "url" and not pkg["url"].startswith(("http://", "https://")):
         problems.append("L'URL de téléchargement doit commencer par http(s)://.")
-    if pkg["source"] == "magnet" and not pkg["magnet"].startswith("magnet:?"):
-        problems.append("Le lien magnet doit commencer par magnet:?.")
+    if pkg["source"] == "magnet":
+        if not pkg["magnet"].startswith("magnet:?"):
+            problems.append("Le lien magnet doit commencer par magnet:?.")
+        problems.append("Torrent : tico ne l'accepte d'un dépôt communautaire que si l'utilisateur active "
+                        "Réglages › Store › Torrents from any repository.")
     if pkg["source"] != "magnet" and not pkg["sha256"]:
         problems.append("Pas de sha256 : tico ne pourra pas vérifier le téléchargement.")
-    install = (pkg["install"] or "").strip("/")
-    if ".." in install.split("/"):
-        problems.append("Le dossier d'installation ne peut pas contenir « .. ».")
-    root = allowed_root(pkg)
-    if install and install != root and not install.startswith(root + "/"):
-        problems.append(
-            f"« {install} » est hors du dossier autorisé pour ce type de paquet ({root}) : "
-            "tico refusera l'installation. Laissez le champ vide, tico choisira le bon dossier."
-        )
-    if pkg["type"] == "module" and pkg["category"] != "app":
-        problems.append("Le dépôt officiel range les modules en catégorie « app » (avec le tag « emulator »).")
+
+    install = install_of(pkg)
+    if install:
+        if ".." in install.split("/") or ":" in install:
+            problems.append("Le dossier d'installation doit être un chemin relatif simple (sans « .. »).")
+        elif any(_under(install.lower(), f) for f in SYSTEM_FOLDERS):
+            problems.append(f"« {install} » est un dossier système : tico refuse d'y installer "
+                            f"({', '.join(SYSTEM_FOLDERS)}).")
+    keep = pkg["type"] == "zip" and pkg.get("keep_archive")
+    if (keep or pkg["extract_to_folder"]) and not install:
+        problems.append("« Garder l'archive entière » et « Extraire dans un sous-dossier » exigent un dossier d'installation.")
+
     if pkg["type"] == "rom":
-        problems.append(
-            "tico 0.8 n'affiche pas les paquets de type ROM d'un dépôt communautaire (constaté sur Switch) : "
-            "copiez les ROM directement dans tico/roms/<console>/ sur la carte SD."
-        )
+        if not install:
+            problems.append("ROM : choisissez la console (ou un dossier d'installation, ex. tico/roms/gba) : tico l'exige.")
+        name = pkg["filename"] or ""
+        if not name or "/" in name or "\\" in name or "." not in name:
+            problems.append("ROM : le nom de fichier doit être un simple nom avec extension (ex. « Mon jeu (USA).gba »).")
+        elif Path(name).suffix.lower() in (".zip", ".7z", ".rar"):
+            problems.append("ROM : le type « rom » est pour un fichier brut ; pour une archive, utilisez le type zip "
+                            "avec « Garder l'archive entière ».")
+        if not pkg["size"]:
+            problems.append("ROM : la taille est obligatoire.")
+        elif int(pkg["size"]) > ROM_MAX_SIZE:
+            problems.append("ROM : 64 Mio maximum pour le type « rom » ; utilisez le type zip au-delà.")
+
+    if pkg["type"] == "module":
+        if pkg["install"]:
+            problems.append("Module : laissez le dossier d'installation vide (tico l'installe dans tico/modules/<id>).")
+        if category != "app":
+            problems.append("Module : le dépôt officiel les range en catégorie « app », avec le tag « emulator ».")
+        problems.append("Module : tico ne l'accepte d'un dépôt communautaire que si l'utilisateur active "
+                        "Réglages › Store › Cores from any repository.")
+
+    if category == "soundpack" and not _under(install, f"tico/theme/soundpacks/{pkg['id']}"):
+        problems.append(f"Soundpack : seul tico/theme/soundpacks/{pkg['id']} est autorisé.")
+    if category in ("game", "port") and not tags_of(pkg):
+        problems.append("Jeu / port : ajoutez la console (champ Console ou tag, ex. gba) pour qu'il soit rangé dans son rayon.")
+    if len([t for t in pkg["tags"] if t]) > 2:
+        problems.append("tico n'utilise que 2 tags : les suivants sont ignorés.")
+    if len(pkg["screenshots"]) > 8:
+        problems.append("tico affiche 8 captures au maximum.")
+
+    # Un zip sans « install » est déployé depuis la racine de la carte SD.
+    if (pkg["type"] == "zip" and not install and pkg["source"] == "upload" and pkg.get("local_file")
+            and files_dir is not None):
+        names = storage.zip_entries(files_dir / pkg["local_file"])
+        if names is None:
+            problems.append("Le fichier envoyé n'est pas un zip valide : choisissez le bon type (nro, rom…).")
+        else:
+            allowed = (f"switch/{pkg['id']}/", f"tico/ports/{pkg['id']}/", "tico/roms/")
+            outside = [n for n in names if not n.startswith(allowed)]
+            if outside:
+                problems.append(
+                    f"Sans dossier d'installation, le zip est déployé depuis la racine de la carte SD et ne peut écrire "
+                    f"que dans switch/{pkg['id']}/, tico/ports/{pkg['id']}/ ou tico/roms/ (ex. refusé : « {outside[0]} »). "
+                    "Indiquez un dossier d'installation."
+                )
+    if pkg["type"] == "module" and pkg["source"] == "upload" and pkg.get("local_file") and files_dir is not None:
+        names = storage.zip_entries(files_dir / pkg["local_file"])
+        if names is not None and {n.split("/", 1)[0] for n in names} != {pkg["id"]}:
+            problems.append(f"Module : le zip doit contenir un seul dossier nommé « {pkg['id']} ».")
     return problems

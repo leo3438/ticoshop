@@ -91,7 +91,7 @@ export TICOSHOP_URL=https://shop.mondomaine.fr TICOSHOP_TOKEN=<jeton>   # ou ~/.
 ./scripts/ticoshop repo-media icon logo.png
 
 # Homebrew hébergé sur le shop
-./scripts/ticoshop add mon-app "Mon App" category=homebrew type=nro install=switch/mon-app
+./scripts/ticoshop add mon-app "Mon App" category=app type=nro
 ./scripts/ticoshop upload mon-app MonApp.nro 1.0            # la version est jointe au fichier
 ./scripts/ticoshop media mon-app icon icon.png
 ./scripts/ticoshop upload mon-app MonApp.nro 1.1            # 1.0 passe dans l'historique
@@ -126,22 +126,26 @@ export TICOSHOP_URL=https://shop.mondomaine.fr TICOSHOP_TOKEN=<jeton>   # ou ~/.
 - Si le nom ne correspond pas, indiquez le nom exact dans l'admin (Visuels › Jaquette automatique) ou avec `./scripts/ticoshop cover ID "Nom exact (Europe)" gba`.
 - Pour désactiver la recherche automatique : `TICOSHOP_AUTO_COVERS=0`. Pour utiliser un miroir : `TICOSHOP_COVERS_URL`.
 
-### Dossiers d'installation autorisés
-Pour un dépôt « Communauté », tico refuse d'écrire hors d'un dossier qui dépend du type de paquet. Le message est « Ce paquet tente d'écrire hors des dossiers autorisés pour les paquets de la communauté ». **Laissez « Dossier d'installation » vide** : tico choisit lui-même. Si vous le remplissez, il doit rester dans :
+### Où s'installent les paquets
+Les règles sont celles de la doc officielle, [Creating a Store Repository](https://forum.ticoverse.com/topic/150). L'admin et `ticoshop validate` les vérifient, y compris le contenu des zips envoyés.
 
-| Paquet | Dossier autorisé |
-|---|---|
-| app / homebrew (`nro`, `zip`) | `switch/<id>` |
-| ROM / jeu (type `rom`) | `tico/roms/…` |
-| port | `tico/ports/…` |
-| soundpack | `tico/theme/soundpacks/<id>` |
-| console pack | `tico/theme/consolepacks/<id>` |
-| module | `tico/modules/<id>` |
+| Paquet | Sans « Dossier d'installation » | Avec un dossier |
+|---|---|---|
+| `.nro` | `switch/<id>/<id>.nro` | `<dossier>/<id>.nro` |
+| zip | déployé **depuis la racine de la SD** : n'écrit que dans `switch/<id>/`, `tico/ports/<id>/` ou `tico/roms/` | extrait dans le dossier ; tico demande confirmation |
+| ROM brute (`type: rom`) | `tico/roms/<console>` (choisissez la console) | dans le dossier, sous son nom de fichier |
+| soundpack | `tico/theme/soundpacks/<id>` (seul dossier autorisé) | — |
+| module | `tico/modules/<id>`, à laisser vide | — |
 
-L'admin et `ticoshop validate` signalent tout chemin hors de ces dossiers. Les paquets du dépôt officiel n'ont d'ailleurs aucun champ `install`.
+Les dossiers système sont interdits : la racine, `atmosphere`, `bootloader`, `nintendo`, `emummc`, `switch/tico`, `tico/system`, `tico/modules`, `tico/store` et `tico/config`.
 
-### ROM et jeux
-D'après les tests sur Switch, **tico 0.8 n'affiche pas les paquets de type `rom`** venant d'un dépôt communautaire. Ils disparaissent de la liste, avec ou sans `tags` de console. Le dépôt officiel ne contient d'ailleurs que des `module` et des `nro`. En attendant que tico documente ce type, copiez les ROM directement sur la carte SD dans `tico/roms/<console>/`. Les jaquettes automatiques restent disponibles pour les fiches de la vitrine.
+### Jeux et ROM
+Uniquement des jeux que vous avez le droit de distribuer : homebrews, jeux gratuits dont la licence l'autorise, domaine public.
+
+- **ROM brute** (`.gb`, `.gba`, `.nes`…, 64 Mio au maximum) : choisissez le type **ROM brute** et la **console**. ticoshop publie alors `install: tico/roms/<console>`, `filename`, `size` et le tag de console : tico **écarte** une ROM à laquelle il manque l'un de ces champs. Le nom de fichier d'origine (No-Intro) est conservé.
+- **Jeu lu zippé** par l'émulateur : type **zip**, dossier `tico/roms/<console>`, cochez **Garder l'archive entière** (`extract: false`).
+- **Jeu en plusieurs fichiers** (`.cue` + `.bin`) : type **zip**, dossier `tico/roms/<console>`, cochez **Extraire dans un sous-dossier**. Dans tico, activez Réglages › Général › Scan Subfolders.
+- La **console** devient le premier tag. tico range les jeux et ports en rayons par console, d'après un nom ou un slug (`gba`, `snes`, `psx`/`playstation`…). tico ne lit que 2 tags.
 
 ### Notifications Discord
 Créez un webhook (Paramètres du salon › Intégrations › Webhooks), puis mettez son URL dans `TICOSHOP_WEBHOOK_URL`. Une notification est envoyée quand un paquet devient disponible ou change de version. Toute autre URL reçoit un JSON `{"event": "new"|"update", "package": {...}, "page", "index"}`.
@@ -170,10 +174,11 @@ Une archive `tar.gz` (base SQLite copiée de façon cohérente, fichiers et imag
 }
 ```
 
-- `category` : `app`, `homebrew`, `game`, `port`, `fangame`, `soundpack`, `consolepack`, `tool`, `other` (et `emulator`, pour la vitrine seulement). `type` : `zip`, `nro`, `module` (`rom` : voir « ROM et jeux »).
+- `category` : `app`, `game`, `port`, `soundpack` (et `consolepack`). Les anciennes valeurs de ticoshop (`homebrew`, `tool`, `other`, `emulator` → `app` ; `fangame` → `game`) sont converties. `type` : `zip`, `nro`, `module`, `rom`.
 - Les modules officiels sont en catégorie `app` avec `tags: ["emulator", "<console>"]`, sans `install`, `filename` ni `extract`.
 - Un torrent utilise `magnet` (+ `file`) à la place de `url`. Un paquet sans fichier n'est pas publié.
-- Le dossier `install` est limité selon le type de paquet (voir « Dossiers d'installation autorisés »). Les modules d'un dépôt communautaire ne s'installent que si l'utilisateur autorise « Cores from any repository » dans Réglages › Store.
+- Voir « Où s'installent les paquets ». Les modules et les torrents d'un dépôt communautaire ne s'installent que si l'utilisateur les autorise dans Réglages › Store (« Cores from any repository », « Torrents from any repository »). `featured` n'est pris en compte que pour les dépôts de confiance.
+- tico attend des images (`icon`, `banner`, `screenshots`) en `https://` : utilisez le HTTPS (`install.sh --domain`) pour qu'elles s'affichent.
 - La console d'un jeu (`gba`, `snes`…) n'est utilisée que par ticoshop, pour les jaquettes. Elle n'est pas publiée dans l'index.
 
 Toute la correspondance se trouve dans `app/index.py`. Pour un champ ajouté par une future version de tico, utilisez les « Champs supplémentaires » (JSON fusionné tel quel), dans l'admin ou avec `extra='{…}'` en CLI.

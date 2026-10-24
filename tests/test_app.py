@@ -87,7 +87,7 @@ def test_index_schema_and_upload(client):
     assert index["schema"] == 1
     pkg = index["packages"][0]
     assert pkg["id"] == "hello"
-    assert pkg["url"] == "https://shop.test/files/hello/hello_world.nro"
+    assert pkg["url"] == "https://shop.test/files/hello/hello%20world.nro"
     assert pkg["sha256"] == hashlib.sha256(payload).hexdigest()
     assert pkg["size"] == len(payload)
     assert pkg["install"] == "switch/hello"
@@ -95,7 +95,7 @@ def test_index_schema_and_upload(client):
     assert pkg["icon"].startswith("https://shop.test/media/")
     assert client.get("/t").json() == index
 
-    dl = client.get("/files/hello/hello_world.nro")
+    dl = client.get("/files/hello/hello%20world.nro")
     assert dl.content == payload
     assert client.get("/api/packages/hello", headers=auth()).json()["downloads"] == 1
 
@@ -114,7 +114,7 @@ def test_validation(client):
     })
     problems = client.get("/api/validate", headers=auth()).json()["bad"]
     assert any("http" in p for p in problems)
-    assert any("hors du dossier autorisé" in p for p in problems)
+    assert any("dossier système" in p for p in problems)
     assert any("sha256" in p for p in problems)
 
 
@@ -335,11 +335,11 @@ def test_admin_flow(client):
     csrf = admin_login(client)
     r = client.post("/admin/packages/new", data={
         "csrf": csrf, "id": "web-pkg", "name": "Web", "version": "2.0", "category": "port", "type": "zip",
-        "source": "upload", "tags": "a, b", "published": "on", "extract": "on", "extra": "{}",
+        "source": "upload", "tags": "a, b", "published": "on", "keep_archive": "on", "install": "tico/roms/gba", "extra": "{}",
     }, files={"package_file": ("web.zip", b"PK..."), "screenshot_files": ("s.png", PNG)}, follow_redirects=False)
     assert r.status_code == 303, r.text
     pkg = client.get("/api/packages/web-pkg").json()
-    assert pkg["tags"] == ["a", "b"] and pkg["extract"] and pkg["filename"] == "web.zip" and pkg["published"]
+    assert pkg["tags"] == ["a", "b"] and pkg["keep_archive"] and pkg["filename"] == "web.zip" and pkg["published"]
     assert len(pkg["screenshots"]) == 1
     for page in ("/admin", "/admin/packages/web-pkg", "/admin/stats", "/admin/backups", "/admin/users", "/admin/repo"):
         assert client.get(page).status_code == 200, page
@@ -478,20 +478,68 @@ def test_cover_name_candidates():
     assert guess_console(".GBA") == "gba" and guess_console(".iso") == ""
 
 
-def test_install_root_validation(client):
+def test_spec_validation(client):
+    """Règles de « Creating a Store Repository » (tico 0.8)."""
     def problems(**fields):
         client.post("/api/packages", headers=auth(), json={"id": "v", **fields})
-        out = client.get("/api/packages/v", headers=auth()).json()["problems"]
+        out = " ".join(client.get("/api/packages/v", headers=auth()).json()["problems"])
         client.delete("/api/packages/v", headers=auth())
-        return " ".join(out)
+        return out
 
-    assert "hors du dossier autorisé" in problems(category="game", type="zip", install="tico/roms/nds")
-    assert "hors du dossier autorisé" not in problems(category="game", type="rom", install="tico/roms/nds")
-    assert "hors du dossier autorisé" not in problems(category="homebrew", type="nro", install="switch/v")
-    assert "hors du dossier autorisé" in problems(category="homebrew", type="nro", install="switch/autre")
-    assert "hors du dossier autorisé" not in problems(category="soundpack", install="")
-    assert "n'affiche pas les paquets de type ROM" in problems(category="game", type="rom")
-    assert "catégorie « app »" in problems(category="emulator", type="module")
+    assert "dossier système" in problems(install="tico/modules/x")
+    assert "dossier système" not in problems(install="tico/roms/nds")       # tout dossier non système
+    assert "exigent un dossier" in problems(keep_archive=True)
+    assert "choisissez la console" in problems(type="rom", category="game", filename="a.gba", size=10)
+    assert "64 Mio" in problems(type="rom", console="gba", filename="a.gba", size=70 * 1024 * 1024)
+    assert "fichier brut" in problems(type="rom", console="gba", filename="a.zip", size=10)
+    assert "taille est obligatoire" in problems(type="rom", console="gba", filename="a.gba")
+    assert "ajoutez la console" in problems(category="game")
+    assert "Cores from any repository" in problems(type="module", category="app")
+    assert "catégorie « app »" in problems(type="module", category="game")
+    assert "2 tags" in problems(tags=["a", "b", "c"])
+    assert "soundpacks/v" not in problems(category="soundpack")              # dossier par défaut
+
+
+def test_zip_layout_from_sd_root(client):
+    def upload_zip(pkg_id, names, **fields):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            for n in names:
+                zf.writestr(n, b"x")
+        client.post("/api/packages", headers=auth(), json={"id": pkg_id, **fields})
+        client.post(f"/api/packages/{pkg_id}/file", headers=auth(), files={"file": ("p.zip", buf.getvalue())})
+        return " ".join(client.get(f"/api/packages/{pkg_id}", headers=auth()).json()["problems"])
+
+    # le cas qui échouait sur la Switch : la ROM à la racine du zip, sans dossier d'installation
+    assert "racine de la carte SD" in upload_zip("z1", ["Mon jeu.nds"])
+    assert "racine de la carte SD" not in upload_zip("z2", ["switch/z2/z2.nro", "tico/roms/gba/Jeu.gba"])
+    assert "racine de la carte SD" not in upload_zip("z3", ["Mon jeu.nds"], install="tico/roms/nds")
+    assert "un seul dossier" in upload_zip("m1", ["autre/module.json"], type="module", category="app")
+
+
+def test_index_follows_spec(client):
+    client.post("/api/packages", headers=auth(), json={"id": "rom-gba", "name": "Jeu", "category": "game", "type": "rom"})
+    client.post("/api/packages/rom-gba/file", headers=auth(), files={"file": ("Mon Jeu (USA).gba", b"r" * 100)})
+    client.post("/api/packages", headers=auth(), json={
+        "id": "zipped", "category": "game", "console": "snes", "keep_archive": True, "install": "tico/roms/snes"})
+    client.post("/api/packages/zipped/file", headers=auth(), files={"file": ("Game.zip", b"PK")})
+    client.post("/api/packages", headers=auth(), json={"id": "sounds", "category": "soundpack"})
+    client.post("/api/packages/sounds/file", headers=auth(), files={"file": ("s.zip", b"PK")})
+    client.post("/api/packages", headers=auth(), json={"id": "app1", "category": "homebrew", "type": "nro"})
+    client.post("/api/packages/app1/file", headers=auth(), files={"file": ("a.nro", b"NRO0")})
+    entries = {e["id"]: e for e in client.get("/index.json").json()["packages"]}
+
+    rom = entries["rom-gba"]
+    assert rom["type"] == "rom" and rom["tags"] == ["gba"] and rom["install"] == "tico/roms/gba"
+    assert rom["filename"] == "Mon Jeu (USA).gba" and rom["size"] == 100
+    assert rom["url"].endswith("/files/rom-gba/Mon%20Jeu%20%28USA%29.gba")
+    assert client.get(rom["url"].replace("https://shop.test", "")).content == b"r" * 100
+    z = entries["zipped"]
+    assert z["extract"] is False and z["filename"] == "Game.zip" and z["tags"] == ["snes"]
+    assert entries["sounds"]["install"] == "tico/theme/soundpacks/sounds"
+    app = entries["app1"]
+    assert app["category"] == "app" and "install" not in app and "filename" not in app and "extract" not in app
+    assert all("console" not in e for e in entries.values())
 
 
 def test_covers_server_unreachable(client, monkeypatch):

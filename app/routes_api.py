@@ -8,12 +8,14 @@ from fastapi.responses import FileResponse
 
 from . import backup, covers, github, storage
 from .context import SOURCES, Context
-from .index import CATEGORIES, TYPES, validate_package
+from .index import CATEGORIES, LEGACY_CATEGORIES, TYPES, validate_package
 
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 
 
 def check_enums(values: dict[str, Any]) -> None:
+    if values.get("category") in LEGACY_CATEGORIES:
+        values["category"] = LEGACY_CATEGORIES[values["category"]]
     if "category" in values and values["category"] not in CATEGORIES:
         raise HTTPException(400, f"category doit être parmi : {', '.join(CATEGORIES)}")
     if "type" in values and values["type"] not in TYPES:
@@ -55,7 +57,7 @@ def register(app: FastAPI, ctx: Context) -> None:
     @app.get("/api/packages/{pkg_id}", tags=["api"], dependencies=api)
     def api_get(pkg_id: str):
         pkg = ctx.get_or_404(pkg_id)
-        return {**pkg, "problems": validate_package(pkg)}
+        return {**pkg, "problems": validate_package(pkg, settings.files_dir)}
 
     @app.post("/api/packages", tags=["api"], status_code=201, dependencies=api)
     def api_create(values: dict[str, Any]):
@@ -146,7 +148,7 @@ def register(app: FastAPI, ctx: Context) -> None:
     # --- divers ----------------------------------------------------------
     @app.get("/api/validate", tags=["api"], dependencies=api)
     def api_validate():
-        return {p["id"]: validate_package(p) for p in db.list_packages() if p["published"]}
+        return {p["id"]: validate_package(p, settings.files_dir) for p in db.list_packages() if p["published"]}
 
     @app.get("/api/stats", tags=["api"], dependencies=api)
     def api_stats(days: int = 30):

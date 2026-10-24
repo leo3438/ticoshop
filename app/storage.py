@@ -11,7 +11,8 @@ from typing import BinaryIO
 
 CHUNK = 1024 * 1024
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
-SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
+# Garde les noms No-Intro (« Mon Jeu (USA, Europe) [!].gba ») ; retire séparateurs et caractères refusés.
+UNSAFE_NAME = re.compile(r'[\x00-\x1f/\\:*?"<>|]+')
 
 
 class UploadTooLarge(Exception):
@@ -19,8 +20,8 @@ class UploadTooLarge(Exception):
 
 
 def safe_filename(name: str) -> str:
-    name = SAFE_NAME.sub("_", Path(name or "").name).strip("._")
-    return name or "package.bin"
+    name = UNSAFE_NAME.sub("_", Path((name or "").replace("\\", "/")).name).strip(" .")
+    return name[:200] or "package.bin"
 
 
 def write_stream(src: BinaryIO, dest: Path, max_bytes: int) -> tuple[str, int]:
@@ -63,6 +64,15 @@ def save_package_file(files_dir: Path, pkg_id: str, filename: str, src: BinaryIO
 
 def delete_package_files(files_dir: Path, pkg_id: str) -> None:
     shutil.rmtree(files_dir / pkg_id, ignore_errors=True)
+
+
+def zip_entries(path: Path) -> list[str] | None:
+    """Fichiers d'un zip (sans les dossiers), ou None si ce n'est pas un zip lisible."""
+    try:
+        with zipfile.ZipFile(path) as zf:
+            return [n for n in zf.namelist() if not n.endswith("/")]
+    except (zipfile.BadZipFile, OSError):
+        return None
 
 
 def inspect_module(path: Path) -> dict | None:

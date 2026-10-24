@@ -59,7 +59,7 @@ def register(app: FastAPI, ctx: Context) -> None:
     @app.get("/admin", include_in_schema=False, dependencies=admin)
     def dashboard(request: Request):
         packages = db.list_packages()
-        problems = {p["id"]: validate_package(p) for p in packages}
+        problems = {p["id"]: validate_package(p, settings.files_dir) for p in packages}
         return ctx.render(request, "admin/dashboard.html", packages=packages, problems=problems)
 
     @app.get("/admin/repo", include_in_schema=False, dependencies=admin)
@@ -88,7 +88,7 @@ def register(app: FastAPI, ctx: Context) -> None:
     def package_page(request: Request, pkg: dict[str, Any] | None, error: str = "", status_code: int = 200) -> Response:
         return ctx.render(
             request, "admin/package.html", status_code=status_code, pkg=pkg, error=error,
-            problems=validate_package(pkg) if pkg else [],
+            problems=validate_package(pkg, settings.files_dir) if pkg else [],
             releases=db.list_releases(pkg["id"]) if pkg else [],
         )
 
@@ -129,7 +129,7 @@ def register(app: FastAPI, ctx: Context) -> None:
         values["description"] = str(form.get("description", ""))
         values["changelog"] = str(form.get("changelog", ""))
         values["tags"] = [t.strip() for t in str(form.get("tags", "")).split(",") if t.strip()]
-        for flag in ("featured", "published", "extract", "extract_to_folder", "auto_update"):
+        for flag in ("featured", "published", "keep_archive", "extract_to_folder", "auto_update"):
             values[flag] = bool(form.get(flag))
         if values["source"] != "upload":
             values["filename"] = str(form.get("filename", "")).strip()
@@ -303,7 +303,9 @@ def register(app: FastAPI, ctx: Context) -> None:
             ok, detail = await run_in_threadpool(probe, f"{settings.public_url}/healthz")
             add("ok" if ok else "err", "Le shop répond à son adresse publique" if ok else "Adresse publique injoignable depuis le serveur", detail)
             if not settings.public_url.startswith("https://"):
-                add("warn", "Pas de HTTPS", "Fonctionne en réseau local ; sur Internet, activez Caddy (install.sh --domain).")
+                add("warn", "Pas de HTTPS",
+                    "Les téléchargements fonctionnent en http, mais tico attend des images (icônes, captures) en "
+                    "https:// : elles peuvent ne pas s'afficher. Sur Internet, activez Caddy (install.sh --domain).")
         else:
             add("warn", "TICOSHOP_PUBLIC_URL non définie", f"Les liens de index.json utilisent l'adresse de la requête ({base}).")
         if settings.admin_password in ("", "change-moi"):
@@ -311,7 +313,7 @@ def register(app: FastAPI, ctx: Context) -> None:
         add("ok" if settings.api_token else "warn", "Jeton d'API", "défini" if settings.api_token else "absent : le CLI ne pourra pas se connecter")
 
         packages = db.list_packages()
-        broken = {p["id"]: validate_package(p) for p in packages if p["published"]}
+        broken = {p["id"]: validate_package(p, settings.files_dir) for p in packages if p["published"]}
         broken = {k: v for k, v in broken.items() if v}
         add("ok" if not broken else "warn", f"{len(packages)} paquet(s), {len(broken)} avec des problèmes",
             "; ".join(f"{k} : {' '.join(v)}" for k, v in broken.items()))

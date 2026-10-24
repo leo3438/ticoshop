@@ -86,10 +86,14 @@ MIGRATIONS = [
     """
     ALTER TABLE packages ADD COLUMN console TEXT NOT NULL DEFAULT '';
     """,
+    # tico extrait les zips par défaut : « extract » ne sert plus, keep_archive = "extract": false.
+    """
+    ALTER TABLE packages ADD COLUMN keep_archive INTEGER NOT NULL DEFAULT 0;
+    """,
 ]
 
 JSON_FIELDS = {"tags": list, "screenshots": list, "extra": dict}
-BOOL_FIELDS = {"featured", "published", "extract", "extract_to_folder", "auto_update"}
+BOOL_FIELDS = {"featured", "published", "extract", "extract_to_folder", "auto_update", "keep_archive"}
 
 REPO_DEFAULTS = {
     "name": "Mon shop tico",
@@ -108,7 +112,7 @@ EDITABLE = [
     "description", "changelog", "icon", "banner", "screenshots", "featured",
     "published", "source", "url", "magnet", "torrent_file", "filename",
     "sha256", "size", "install", "extract", "extract_to_folder", "extra",
-    "github_repo", "github_asset", "auto_update", "console",
+    "github_repo", "github_asset", "auto_update", "console", "keep_archive",
 ]
 # Champs système, modifiables seulement par le code.
 INTERNAL = ["local_file", "last_sync", "sync_error"]

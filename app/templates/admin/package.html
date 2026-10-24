@@ -29,7 +29,7 @@
       <div class="row">
         <label>Catégorie
           <select name="category">{% for k, v in CATEGORIES.items() %}
-            <option value="{{ k }}" {% if (p.category or 'app') == k %}selected{% endif %}>{{ v }}</option>{% endfor %}
+            <option value="{{ k }}" {% if (p.category or 'app') == k or (k == 'app' and p.category in ('homebrew', 'tool', 'other', 'emulator')) or (k == 'game' and p.category == 'fangame') %}selected{% endif %}>{{ v }}</option>{% endfor %}
           </select>
         </label>
         <label>Type de paquet
@@ -38,7 +38,7 @@
           </select>
         </label>
       </div>
-      <label>Console (jeux / ROM)
+      <label>Console (jeux, ports, ROM : rayon dans tico et dossier tico/roms/&lt;console&gt;)
         <select name="console">
           <option value="">— détection automatique d'après l'extension —</option>
           {% for k, v in CONSOLES.items() %}<option value="{{ k }}" {% if p.console == k %}selected{% endif %}>{{ v[0] }}</option>{% endfor %}
@@ -102,15 +102,20 @@
     <fieldset>
       <legend>Installation sur la Switch</legend>
       <label>Dossier d'installation (relatif à la racine de la SD)
-        <input name="install" value="{{ p.install or '' }}" placeholder="vide (recommandé)">
-        <small><strong>Laissez vide</strong> : tico choisit le bon dossier. Pour un dépôt communautaire, tico n'accepte que
-          <code>switch/&lt;id&gt;</code> (apps), <code>tico/roms/…</code> (type ROM), <code>tico/ports/…</code> (ports),
-          <code>tico/theme/soundpacks/&lt;id&gt;</code>, <code>tico/theme/consolepacks/&lt;id&gt;</code> et
-          <code>tico/modules/&lt;id&gt;</code> (modules).</small>
+        <input name="install" value="{{ p.install or '' }}" placeholder="vide = selon le type">
+        <small>
+          <strong>.nro</strong> : vide → <code>switch/&lt;id&gt;/&lt;id&gt;.nro</code>.
+          <strong>ROM</strong> : vide → <code>tico/roms/&lt;console&gt;</code>.
+          <strong>Zip sans dossier</strong> : déployé depuis la racine de la SD, il ne peut écrire que dans
+          <code>switch/&lt;id&gt;/</code>, <code>tico/ports/&lt;id&gt;/</code> ou <code>tico/roms/</code>.
+          <strong>Zip avec dossier</strong> : extrait dans ce dossier (tico demande confirmation).
+          Interdits : racine, <code>atmosphere</code>, <code>bootloader</code>, <code>nintendo</code>, <code>emummc</code>,
+          <code>switch/tico</code>, <code>tico/system|modules|store|config</code>. Modules : laisser vide.
+        </small>
       </label>
       <div class="checks">
-        <label class="check"><input type="checkbox" name="extract" {% if p.extract %}checked{% endif %}> Extraire l'archive</label>
-        <label class="check"><input type="checkbox" name="extract_to_folder" {% if p.extract_to_folder %}checked{% endif %}> Extraire dans un sous-dossier</label>
+        <label class="check"><input type="checkbox" name="keep_archive" {% if p.keep_archive %}checked{% endif %}> Garder l'archive entière (jeux lus zippés par l'émulateur)</label>
+        <label class="check"><input type="checkbox" name="extract_to_folder" {% if p.extract_to_folder %}checked{% endif %}> Extraire dans un sous-dossier (jeux en plusieurs fichiers : .cue + .bin)</label>
       </div>
     </fieldset>
 
