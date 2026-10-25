@@ -11,6 +11,24 @@
   <p class="muted small">{{ t('add.short') }} <code id="short-url">{{ base }}/t</code> <button class="link" data-copy="#short-url">{{ t('add.copy_small') }}</button></p>
 </section>
 
+{% if shelves | length > 1 %}
+<section class="card" id="rayons">
+  <h2>{{ t('add.shelves') }}</h2>
+  {% if total > tico_max %}<p class="alert">{{ t('add.shelves_limit', total=total, max=tico_max) }}</p>
+  {% else %}<p class="muted small">{{ t('add.shelves_help', max=tico_max) }}</p>{% endif %}
+  <ul class="shelf-list">
+    {% for shelf, n, url in shelves %}
+    <li>
+      <div><strong>{{ shelf_label(shelf, t('store.other')) }}</strong> <span class="count">{{ n }}</span></div>
+      <div class="copy-row"><code id="shelf-{{ loop.index }}">{{ url }}</code>
+        <button class="btn" data-copy="#shelf-{{ loop.index }}">{{ t('copy') }}</button>
+        <a class="btn" href="/qr.svg?shelf={{ shelf }}" target="_blank" rel="noopener">QR</a></div>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
 <div class="two-cols">
   <section class="card">
     <h2>{{ t('add.switch') }}</h2>

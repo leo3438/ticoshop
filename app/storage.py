@@ -3,6 +3,7 @@ import hashlib
 import json
 import re
 import shutil
+import urllib.parse
 import urllib.request
 import uuid
 import zipfile
@@ -11,7 +12,8 @@ from typing import BinaryIO
 
 CHUNK = 1024 * 1024
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
-SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
+# Garde les noms No-Intro (« Mon Jeu (USA, Europe) [!].gba ») ; retire séparateurs et caractères refusés.
+UNSAFE_NAME = re.compile(r'[\x00-\x1f/\\:*?"<>|]+')
 
 
 class UploadTooLarge(Exception):
@@ -19,8 +21,8 @@ class UploadTooLarge(Exception):
 
 
 def safe_filename(name: str) -> str:
-    name = SAFE_NAME.sub("_", Path(name or "").name).strip("._")
-    return name or "package.bin"
+    name = UNSAFE_NAME.sub("_", Path((name or "").replace("\\", "/")).name).strip(" .")
+    return name[:200] or "package.bin"
 
 
 def write_stream(src: BinaryIO, dest: Path, max_bytes: int) -> tuple[str, int]:
@@ -65,6 +67,65 @@ def delete_package_files(files_dir: Path, pkg_id: str) -> None:
     shutil.rmtree(files_dir / pkg_id, ignore_errors=True)
 
 
+def wrap_rom(files_dir: Path, pkg_id: str, src_rel: str, console: str, rom_exts: set[str],
+             new_name: str = "") -> tuple[str, str, int, str] | None:
+    """Emballe une ROM dans un zip « tico/roms/<console>/<nom> » (format accepté par tico 0.8).
+
+    src_rel : ROM brute, ou zip contenant une seule ROM. Renvoie (chemin relatif du
+    zip, sha256, taille, nom de la ROM), ou None si ce n'est pas une ROM reconnue.
+    """
+    src = files_dir / src_rel
+    member = None
+    if src.suffix.lower() == ".zip":
+        names = zip_entries(src) or []
+        roms = [n for n in names if Path(n).suffix.lower() in rom_exts]
+        if len(roms) != 1 or len(names) != 1:
+            return None  # déjà organisé, ou plusieurs fichiers : on n'y touche pas
+        member = roms[0]
+        rom_name = safe_filename(Path(member).name)
+    elif src.suffix.lower() in rom_exts:
+        rom_name = src.name
+    else:
+        return None
+    if new_name:
+        rom_name = safe_filename(new_name)
+    token = uuid.uuid4().hex[:12]
+    dest = files_dir / pkg_id / token / f"{Path(rom_name).stem}.zip"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    arcname = f"tico/roms/{console}/{rom_name}"
+    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as out:
+        if member is None:
+            out.write(src, arcname)
+        else:
+            with zipfile.ZipFile(src) as zin, zin.open(member) as data, out.open(arcname, "w") as target:
+                shutil.copyfileobj(data, target, CHUNK)
+    digest = hashlib.sha256()
+    with dest.open("rb") as f:
+        while chunk := f.read(CHUNK):
+            digest.update(chunk)
+    src.unlink(missing_ok=True)
+    if not any(src.parent.iterdir()):
+        src.parent.rmdir()
+    return f"{pkg_id}/{token}/{dest.name}", digest.hexdigest(), dest.stat().st_size, rom_name
+
+
+def file_digest(path: Path) -> tuple[str, int]:
+    digest = hashlib.sha256()
+    with path.open("rb") as f:
+        while chunk := f.read(CHUNK):
+            digest.update(chunk)
+    return digest.hexdigest(), path.stat().st_size
+
+
+def zip_entries(path: Path) -> list[str] | None:
+    """Fichiers d'un zip (sans les dossiers), ou None si ce n'est pas un zip lisible."""
+    try:
+        with zipfile.ZipFile(path) as zf:
+            return [n for n in zf.namelist() if not n.endswith("/")]
+    except (zipfile.BadZipFile, OSError):
+        return None
+
+
 def inspect_module(path: Path) -> dict | None:
     """Lit le module.json d'une archive de module tico (ex: picodrive/module.json).
 
@@ -102,9 +163,34 @@ def save_image(media_dir: Path, filename: str, src: BinaryIO, max_bytes: int = 2
     return f"/media/{name}"
 
 
+def save_image_bytes(media_dir: Path, data: bytes, ext: str = ".png") -> str:
+    name = f"{uuid.uuid4().hex}{ext}"
+    (media_dir / name).write_bytes(data)
+    return f"/media/{name}"
+
+
 def delete_image(media_dir: Path, ref: str) -> None:
     if ref.startswith("/media/"):
         (media_dir / Path(ref).name).unlink(missing_ok=True)
+
+
+def download(url: str, dest_dir: Path, max_bytes: int) -> tuple[Path, str]:
+    """Télécharge une URL http(s) dans dest_dir. Renvoie (fichier temporaire, nom d'origine)."""
+    if not url.startswith(("http://", "https://")):
+        raise ValueError("URL http(s) attendue")
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    req = urllib.request.Request(url, headers={"User-Agent": "ticoshop"})
+    tmp = dest_dir / f".download-{uuid.uuid4().hex}"
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        name = resp.headers.get_filename() or ""
+        if not name:
+            name = urllib.parse.unquote(Path(urllib.parse.urlparse(resp.geturl()).path).name)
+        try:
+            write_stream(resp, tmp, max_bytes)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
+    return tmp, safe_filename(name or "download.bin")
 
 
 def remote_checksum(url: str, max_bytes: int) -> tuple[str, int]:

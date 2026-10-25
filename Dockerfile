@@ -10,6 +10,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     TICOSHOP_BACKUP_DIR=/backups \
     FORWARDED_ALLOW_IPS=127.0.0.1
 
+# bsdtar (libarchive) : lecture des packs .rar / .7z envoyés dans l'admin.
+RUN apt-get update && apt-get install -y --no-install-recommends libarchive-tools \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

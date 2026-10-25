@@ -10,7 +10,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from starlette.datastructures import UploadFile as StarletteUpload
 
-from . import backup, github, storage
+from . import backup, github, shelves, storage
 from .context import Context
 from .index import validate_package
 from .security import hash_password
@@ -59,8 +59,10 @@ def register(app: FastAPI, ctx: Context) -> None:
     @app.get("/admin", include_in_schema=False, dependencies=admin)
     def dashboard(request: Request):
         packages = db.list_packages()
-        problems = {p["id"]: validate_package(p) for p in packages}
-        return ctx.render(request, "admin/dashboard.html", packages=packages, problems=problems)
+        problems = {p["id"]: validate_package(p, settings.files_dir) for p in packages}
+        published = sum(len(items) for items in ctx.shelves(request).values())
+        return ctx.render(request, "admin/dashboard.html", packages=packages, problems=problems,
+                          published=published, tico_max=shelves.TICO_MAX_PACKAGES)
 
     @app.get("/admin/repo", include_in_schema=False, dependencies=admin)
     def repo_form(request: Request):
@@ -88,7 +90,7 @@ def register(app: FastAPI, ctx: Context) -> None:
     def package_page(request: Request, pkg: dict[str, Any] | None, error: str = "", status_code: int = 200) -> Response:
         return ctx.render(
             request, "admin/package.html", status_code=status_code, pkg=pkg, error=error,
-            problems=validate_package(pkg) if pkg else [],
+            problems=validate_package(pkg, settings.files_dir) if pkg else [],
             releases=db.list_releases(pkg["id"]) if pkg else [],
         )
 
@@ -124,12 +126,12 @@ def register(app: FastAPI, ctx: Context) -> None:
         values: dict[str, Any] = {
             k: str(form.get(k, "")).strip()
             for k in ("name", "version", "author", "category", "type", "tagline", "source", "url",
-                      "magnet", "torrent_file", "install", "sha256", "github_repo", "github_asset")
+                      "magnet", "torrent_file", "install", "sha256", "github_repo", "github_asset", "console")
         }
         values["description"] = str(form.get("description", ""))
         values["changelog"] = str(form.get("changelog", ""))
         values["tags"] = [t.strip() for t in str(form.get("tags", "")).split(",") if t.strip()]
-        for flag in ("featured", "published", "extract", "extract_to_folder", "auto_update"):
+        for flag in ("featured", "published", "keep_archive", "extract_to_folder", "auto_update"):
             values[flag] = bool(form.get(flag))
         if values["source"] != "upload":
             values["filename"] = str(form.get("filename", "")).strip()
@@ -164,13 +166,16 @@ def register(app: FastAPI, ctx: Context) -> None:
         if values["source"] == "upload" and isinstance(upload, StarletteUpload) and upload.filename:
             # Fichier et champs du formulaire dans la même mise à jour (historique cohérent).
             values.pop("sha256", None)
-            module = await ctx.store_upload(pkg_id, upload, values)  # type: ignore[arg-type]
-            if module:
-                consoles = ", ".join(s["title"] for s in module["systems"]) or "aucune console déclarée"
-                request.session["flash"] = f"Module tico « {module['name']} » détecté ({consoles}) : fiche pré-remplie."
+            info = await ctx.store_upload(pkg_id, upload, values)  # type: ignore[arg-type]
+            upload_flash(request, info)
         else:
             db.update_package(pkg_id, values)
-        if values["source"] == "url" and form.get("compute_checksum"):
+        if values["source"] == "url" and form.get("import_to_shop"):
+            try:
+                upload_flash(request, await ctx.import_url(pkg_id))
+            except HTTPException as e:
+                return package_page(request, ctx.get_or_404(pkg_id), str(e.detail), e.status_code)
+        elif values["source"] == "url" and form.get("compute_checksum"):
             try:
                 await ctx.fetch_checksum(ctx.get_or_404(pkg_id))
             except HTTPException as e:
@@ -193,6 +198,24 @@ def register(app: FastAPI, ctx: Context) -> None:
             request.session["flash"] = f"GitHub : {msg}."
         except github.SyncError as e:
             request.session["flash"] = f"GitHub : échec, {e}."
+        return RedirectResponse(f"/admin/packages/{pkg_id}", 303)
+
+    @app.post("/admin/packages/{pkg_id}/covers", include_in_schema=False, dependencies=admin)
+    async def find_covers(request: Request, pkg_id: str, csrf: str = Form(""), cover_name: str = Form(""),
+                          console: str = Form(""), force: str = Form("")):
+        ctx.check_csrf(request, csrf)
+        try:
+            res = await ctx.apply_covers(pkg_id, name=cover_name.strip(), console=console, force=bool(force))
+        except HTTPException as e:
+            request.session["flash"] = str(e.detail)
+            return RedirectResponse(f"/admin/packages/{pkg_id}", 303)
+        if res["found"] and res["added"]:
+            request.session["flash"] = f"Images trouvées pour « {res['found']} » : {', '.join(res['added'])}."
+        elif res["found"]:
+            request.session["flash"] = f"Images trouvées pour « {res['found']} », mais le paquet en a déjà (cochez « Remplacer »)."
+        else:
+            request.session["flash"] = (f"Aucune jaquette trouvée pour « {res['tried']} ». Indiquez le nom exact "
+                                        "No-Intro / Redump du jeu, ex. « Super Mario World (USA) ».")
         return RedirectResponse(f"/admin/packages/{pkg_id}", 303)
 
     @app.post("/admin/packages/{pkg_id}/releases/{rid}/restore", include_in_schema=False, dependencies=admin)
@@ -285,7 +308,9 @@ def register(app: FastAPI, ctx: Context) -> None:
             ok, detail = await run_in_threadpool(probe, f"{settings.public_url}/healthz")
             add("ok" if ok else "err", "Le shop répond à son adresse publique" if ok else "Adresse publique injoignable depuis le serveur", detail)
             if not settings.public_url.startswith("https://"):
-                add("warn", "Pas de HTTPS", "Fonctionne en réseau local ; sur Internet, activez Caddy (install.sh --domain).")
+                add("warn", "Pas de HTTPS",
+                    "Les téléchargements fonctionnent en http, mais tico attend des images (icônes, captures) en "
+                    "https:// : elles peuvent ne pas s'afficher. Sur Internet, activez Caddy (install.sh --domain).")
         else:
             add("warn", "TICOSHOP_PUBLIC_URL non définie", f"Les liens de index.json utilisent l'adresse de la requête ({base}).")
         if settings.admin_password in ("", "change-moi"):
@@ -293,7 +318,7 @@ def register(app: FastAPI, ctx: Context) -> None:
         add("ok" if settings.api_token else "warn", "Jeton d'API", "défini" if settings.api_token else "absent : le CLI ne pourra pas se connecter")
 
         packages = db.list_packages()
-        broken = {p["id"]: validate_package(p) for p in packages if p["published"]}
+        broken = {p["id"]: validate_package(p, settings.files_dir) for p in packages if p["published"]}
         broken = {k: v for k, v in broken.items() if v}
         add("ok" if not broken else "warn", f"{len(packages)} paquet(s), {len(broken)} avec des problèmes",
             "; ".join(f"{k} : {' '.join(v)}" for k, v in broken.items()))
@@ -314,6 +339,31 @@ def register(app: FastAPI, ctx: Context) -> None:
             age = (time.time() - backups[0]["time"]) / 3600
             add("ok" if age < settings.backup_hours * 2 else "warn", "Dernière sauvegarde", f"il y a {age:.0f} h ({backups[0]['name']})")
         return ctx.render(request, "admin/diagnostic.html", checks=checks, diag_url=f"{base}/diag/index.json")
+
+
+def upload_flash(request: Request, info: dict[str, Any]) -> None:
+    """Message affiché après un envoi : ce que ticoshop a reconnu ou converti."""
+    msgs = []
+    if info.get("imported_from"):
+        msgs.append("Fichier du lien importé sur le shop.")
+    if info.get("rom_path"):
+        how = "reconnue (No-Intro)" if info.get("identified") else "nom nettoyé, ROM non reconnue par son CRC"
+        msgs.append(f"ROM {how} et emballée dans un zip ({info['rom_path']}) : c'est le format que tico installe.")
+    pack = info.get("pack")
+    if pack:
+        parts = [f"{len(pack['consoles'])} console(s)"] + [f"{n} {k}" for k, n in pack["counts"].items() if n]
+        if pack["colors"]:
+            parts.append("couleurs")
+        msg = f"Pack converti au format tico 0.8 : {', '.join(parts)}."
+        if pack.get("soundpack_packages"):
+            msg += f" Soundpack livré avec : paquet « {', '.join(pack['soundpack_packages'])} » créé."
+        msgs.append(msg)
+    module = info.get("module")
+    if module:
+        consoles = ", ".join(s["title"] for s in module["systems"]) or "aucune console déclarée"
+        msgs.append(f"Module tico « {module['name']} » détecté ({consoles}) : fiche pré-remplie.")
+    if msgs:
+        request.session["flash"] = " ".join(msgs)
 
 
 def probe(url: str) -> tuple[bool, str]:

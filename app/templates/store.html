@@ -1,8 +1,25 @@
 {% extends "base.html" %}
+{% macro tile(p) %}
+<a class="tile" href="/p/{{ p.id }}">
+  <div class="tile-art{% if not p.icon %} empty{% endif %}">
+    {% if p.icon %}<img src="{{ p.icon }}" alt="" loading="lazy">{% else %}<span>{{ p.name[:1] }}</span>{% endif %}
+    {% if p.featured %}<span class="tile-star" title="★">★</span>{% endif %}
+  </div>
+  <div class="tile-body">
+    <strong class="tile-name">{{ p.name }}</strong>
+    <div class="tile-meta">
+      {% set c = main_console(p) %}
+      {% if c %}<span class="badge">{{ console_label(c) }}</span>{% else %}<span class="badge muted-badge">{{ t('cat.' ~ p.category) }}</span>{% endif %}
+      {% if p.version %}<span class="muted">v{{ p.version }}</span>{% endif %}
+    </div>
+    {% if p.tagline %}<div class="tagline">{{ p.tagline }}</div>{% endif %}
+  </div>
+</a>
+{% endmacro %}
 {% block content %}
-<section class="hero" {% if repo.cover %}style="background-image:linear-gradient(90deg,var(--bg) 30%,transparent),url('{{ repo.cover }}')"{% endif %}>
+<section class="hero" {% if repo.cover %}style="background-image:linear-gradient(90deg,var(--card) 35%,color-mix(in srgb,var(--card) 40%,transparent)),url('{{ repo.cover }}')"{% endif %}>
   <h1>{{ repo.name }}</h1>
-  {% if repo.description %}<p>{{ repo.description }}</p>{% endif %}
+  {% if repo.description %}<p class="muted">{{ repo.description }}</p>{% endif %}
   <div class="copy-row">
     <code id="repo-url">{{ index_url }}</code>
     <button class="btn" data-copy="#repo-url">{{ t('copy') }}</button>
@@ -11,28 +28,51 @@
 </section>
 
 <form class="filters" method="get">
+  {% if category %}<input type="hidden" name="category" value="{{ category }}">{% endif %}
+  {% if console %}<input type="hidden" name="console" value="{{ console }}">{% endif %}
   <input type="search" name="q" value="{{ q }}" placeholder="{{ t('store.search') }}">
-  <select name="category" onchange="this.form.submit()">
-    <option value="">{{ t('store.all') }}</option>
-    {% for c in used_categories %}
-      <option value="{{ c }}" {% if c == category %}selected{% endif %}>{{ t('cat.' ~ c) }}</option>
-    {% endfor %}
-  </select>
+  <label class="sort">
+    <span class="muted small">{{ t('store.sort') }}</span>
+    <select name="sort" onchange="this.form.submit()">
+      {% for s in sorts %}<option value="{{ s }}" {% if s == sort %}selected{% endif %}>{{ t('sort.' ~ s) }}</option>{% endfor %}
+    </select>
+  </label>
 </form>
 
-{% if packages %}
-<div class="grid">
-  {% for p in packages %}
-  <a class="pkg-card" href="/p/{{ p.id }}">
-    <div class="pkg-icon">{% if p.icon %}<img src="{{ p.icon }}" alt="">{% else %}<span>{{ p.name[:1] }}</span>{% endif %}</div>
-    <div>
-      <strong>{{ p.name }}</strong> {% if p.featured %}<span class="pill">★</span>{% endif %}
-      <div class="muted">{{ t('cat.' ~ p.category) }}{% if p.version %} · v{{ p.version }}{% endif %}</div>
-      {% if p.tagline %}<div class="tagline">{{ p.tagline }}</div>{% endif %}
-    </div>
-  </a>
+{% if used_categories | length > 1 %}
+<nav class="chips" aria-label="{{ t('store.categories') }}">
+  <a class="chip{% if not category %} active{% endif %}" href="{{ link(category='') }}">{{ t('store.everything') }}</a>
+  {% for c in used_categories %}
+    <a class="chip{% if c == category %} active{% endif %}" href="{{ link(category=c) }}">{{ t('cat.' ~ c) }}</a>
   {% endfor %}
-</div>
+</nav>
+{% endif %}
+{% if consoles %}
+<nav class="chips" aria-label="{{ t('store.consoles') }}">
+  <a class="chip{% if not console %} active{% endif %}" href="{{ link(console='') }}">{{ t('store.all_consoles') }}</a>
+  {% for slug, label, n in consoles %}
+    <a class="chip{% if slug == console %} active{% endif %}" href="{{ link(console=slug) }}">{{ label }} <span class="count">{{ n }}</span></a>
+  {% endfor %}
+</nav>
+{% endif %}
+
+{% if packages %}
+  {% if q or console or category %}
+  <p class="muted small results">{{ t('store.results', n=packages|length) }} · <a href="/">{{ t('store.reset') }}</a></p>
+  {% endif %}
+  {% if groups %}
+    {% for slug, items in groups %}
+    <section class="shelf">
+      <h2>{% if slug %}<a href="{{ link(console=slug) }}">{{ console_label(slug) }}</a>{% else %}{{ t('store.other') }}{% endif %}
+        <span class="count">{{ items|length }}</span></h2>
+      <div class="tiles">{% for p in items %}{{ tile(p) }}{% endfor %}</div>
+    </section>
+    {% endfor %}
+  {% else %}
+    <div class="tiles">{% for p in packages %}{{ tile(p) }}{% endfor %}</div>
+  {% endif %}
+{% elif q or console or category %}
+<p class="muted center">{{ t('store.no_results') }} <a href="/">{{ t('store.reset') }}</a></p>
 {% else %}
 <p class="muted center">{{ t('store.empty') }}</p>
 {% endif %}

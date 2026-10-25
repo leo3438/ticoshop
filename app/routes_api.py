@@ -6,20 +6,24 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 
-from . import backup, github, storage
+from . import backup, covers, github, storage
 from .context import SOURCES, Context
-from .index import CATEGORIES, TYPES, validate_package
+from .index import CATEGORIES, LEGACY_CATEGORIES, TYPES, validate_package
 
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 
 
 def check_enums(values: dict[str, Any]) -> None:
+    if values.get("category") in LEGACY_CATEGORIES:
+        values["category"] = LEGACY_CATEGORIES[values["category"]]
     if "category" in values and values["category"] not in CATEGORIES:
         raise HTTPException(400, f"category doit être parmi : {', '.join(CATEGORIES)}")
     if "type" in values and values["type"] not in TYPES:
         raise HTTPException(400, f"type doit être parmi : {', '.join(TYPES)}")
     if "source" in values and values["source"] not in SOURCES:
         raise HTTPException(400, f"source doit être parmi : {', '.join(SOURCES)}")
+    if values.get("console") and values["console"] not in covers.CONSOLES:
+        raise HTTPException(400, f"console doit être parmi : {', '.join(covers.CONSOLES)}")
     if values.get("github_repo") and not github.REPO_RE.match(values["github_repo"]):
         raise HTTPException(400, "github_repo attendu sous la forme propriétaire/nom.")
 
@@ -53,7 +57,7 @@ def register(app: FastAPI, ctx: Context) -> None:
     @app.get("/api/packages/{pkg_id}", tags=["api"], dependencies=api)
     def api_get(pkg_id: str):
         pkg = ctx.get_or_404(pkg_id)
-        return {**pkg, "problems": validate_package(pkg)}
+        return {**pkg, "problems": validate_package(pkg, settings.files_dir)}
 
     @app.post("/api/packages", tags=["api"], status_code=201, dependencies=api)
     def api_create(values: dict[str, Any]):
@@ -82,8 +86,8 @@ def register(app: FastAPI, ctx: Context) -> None:
         """version / changelog (facultatifs) sont appliqués avec le fichier, en une fois."""
         ctx.get_or_404(pkg_id)
         values = {k: v for k, v in (("version", version), ("changelog", changelog)) if v is not None}
-        module = await ctx.store_upload(pkg_id, file, values)
-        return {**ctx.get_or_404(pkg_id), "module": module}
+        info = await ctx.store_upload(pkg_id, file, values)
+        return {**ctx.get_or_404(pkg_id), **info}
 
     @app.post("/api/packages/{pkg_id}/media", tags=["api"], dependencies=api)
     async def api_media(pkg_id: str, kind: str = Form(...), file: UploadFile = File(...)):
@@ -98,6 +102,22 @@ def register(app: FastAPI, ctx: Context) -> None:
     @app.post("/api/packages/{pkg_id}/checksum", tags=["api"], dependencies=api)
     async def api_checksum(pkg_id: str):
         return await ctx.fetch_checksum(ctx.get_or_404(pkg_id))
+
+    @app.post("/api/packages/{pkg_id}/import", tags=["api"], dependencies=api)
+    async def api_import(pkg_id: str, values: dict[str, Any] | None = None):
+        """Importe sur le shop le fichier d'un lien (corps facultatif : {"url": "..."}) :
+        téléchargé, reconnu, renommé et hébergé comme un envoi."""
+        info = await ctx.import_url(pkg_id, str((values or {}).get("url") or ""))
+        return {**ctx.get_or_404(pkg_id), **info}
+
+    @app.post("/api/packages/{pkg_id}/covers", tags=["api"], dependencies=api)
+    async def api_covers(pkg_id: str, values: dict[str, Any] | None = None):
+        """Cherche jaquette, écran titre et capture (libretro). Corps facultatif : {name, console, force}."""
+        values = values or {}
+        check_enums(values)
+        res = await ctx.apply_covers(pkg_id, name=str(values.get("name") or ""),
+                                     console=str(values.get("console") or ""), force=bool(values.get("force")))
+        return {**res, "package": ctx.get_or_404(pkg_id)}
 
     # --- versions --------------------------------------------------------
     @app.get("/api/packages/{pkg_id}/releases", tags=["api"], dependencies=api)
@@ -135,7 +155,7 @@ def register(app: FastAPI, ctx: Context) -> None:
     # --- divers ----------------------------------------------------------
     @app.get("/api/validate", tags=["api"], dependencies=api)
     def api_validate():
-        return {p["id"]: validate_package(p) for p in db.list_packages() if p["published"]}
+        return {p["id"]: validate_package(p, settings.files_dir) for p in db.list_packages() if p["published"]}
 
     @app.get("/api/stats", tags=["api"], dependencies=api)
     def api_stats(days: int = 30):
