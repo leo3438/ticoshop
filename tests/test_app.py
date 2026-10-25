@@ -827,3 +827,26 @@ def test_storefront_console_filter_and_shelves(client):
     assert games.index("Hermano") < games.index("Tetris") and "Gambatte" not in games
     assert "Aucun résultat." in client.get("/?q=mario").text
     assert "Game Boy Color" in client.get("/p/zelda").text
+
+
+def test_shelf_repositories_stay_under_tico_limit(client, monkeypatch):
+    from app import shelves
+    monkeypatch.setattr(shelves, "TICO_MAX_PACKAGES", 3)
+    games = [(f"gba-{i}", f"GBA {i}", "gba") for i in range(5)] + [("tetris", "Tetris", "gb"), ("a2600", "Pong", "atari-2600")]
+    for pid, name, console in games + [("nx", "NX-Shell", "")]:
+        client.post("/api/packages", headers=auth(), json={
+            "id": pid, "name": name, "category": "game" if console else "app", "console": console,
+            "source": "url", "url": f"https://example.com/{pid}.zip"})
+    assert len(client.get("/index.json").json()["packages"]) == 8  # l'index complet reste entier
+    gba = client.get("/r/gba/index.json").json()
+    assert gba["name"].endswith("· Game Boy Advance") and len(gba["packages"]) == 3
+    gba2 = client.get("/r/gba.2/index.json").json()
+    assert gba2["name"].endswith("· Game Boy Advance (2)") and [p["id"] for p in gba2["packages"]] == ["gba-3", "gba-4"]
+    assert [p["id"] for p in client.get("/r/atari-2600/index.json").json()["packages"]] == ["a2600"]
+    assert [p["id"] for p in client.get("/r/apps/index.json").json()["packages"]] == ["nx"]
+    assert client.get("/r/psx/index.json").status_code == 404
+    add = client.get("/add").text
+    assert "https://shop.test/r/gba.2/index.json" in add and "tico n&#39;en affiche que 3" in add
+    assert client.get("/qr.svg?shelf=gb").headers["content-type"].startswith("image/svg")
+    csrf = admin_login(client)
+    assert "8 paquets publiés" in client.get("/admin").text and csrf

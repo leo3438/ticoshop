@@ -11,11 +11,11 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from fastapi.templating import Jinja2Templates
 
-from . import consolepacks, covers, notify, romnames, storage
+from . import consolepacks, covers, notify, romnames, shelves, storage
 from .config import Settings
 from .db import Database
 from .i18n import LANGS, pick_lang, translator
-from .index import CATEGORIES, TYPES, build_index, category_of
+from .index import CATEGORIES, TYPES, build_index, category_of, is_downloadable
 from .security import LoginLimiter, verify_password
 
 APP_DIR = Path(__file__).parent
@@ -54,13 +54,26 @@ class Context:
     def index_url(self, request: Request) -> str:
         return f"{self.base_url(request)}/index.json"
 
-    def current_index(self, request: Request) -> dict[str, Any]:
+    def current_index(self, request: Request, shelf: str = "") -> dict[str, Any]:
+        """L'index complet, ou celui d'un rayon (/r/<rayon>/index.json, 400 paquets au plus)."""
         repo = self.db.get_repo()
         packages = self.db.list_packages(published_only=True)
+        if shelf:
+            parts = self.shelves(request)
+            if shelf not in parts:
+                raise HTTPException(404, "Rayon introuvable.")
+            packages = parts[shelf]
+            repo = {**repo, "name": f"{repo['name']} · {shelves.shelf_label(shelf)}"}
         releases = None
         if repo.get("publish_versions"):
             releases = {p["id"]: self.db.list_releases(p["id"]) for p in packages}
         return build_index(self.base_url(request), repo, packages, releases)
+
+    def shelves(self, request: Request) -> dict[str, list[dict[str, Any]]]:
+        """Rayons publiés : {rayon: paquets téléchargeables}."""
+        base = self.base_url(request)
+        packages = [p for p in self.db.list_packages(published_only=True) if is_downloadable(base, p)]
+        return shelves.split_shelves(packages)
 
     # --- rendu -------------------------------------------------------------
     def render(self, request: Request, name: str, public: bool = False, status_code: int = 200, **ctx: Any) -> Response:

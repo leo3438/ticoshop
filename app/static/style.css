@@ -159,3 +159,7 @@ legend { font-weight: 700; padding: 0 6px; }
   .shots img { height: 130px; }
   .banner { max-height: 180px; }
 }
+.shelf-list { list-style: none; padding: 0; margin: 0; }
+.shelf-list li { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.shelf-list li:last-child { border-bottom: 0; }
+.shelf-list .copy-row { margin: 6px 0 0; }

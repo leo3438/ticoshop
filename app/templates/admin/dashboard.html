@@ -8,6 +8,11 @@
     <a class="btn btn-primary" href="/admin/packages/new">+ Nouveau paquet</a>
   </div>
 </div>
+{% if published > tico_max %}
+<p class="alert">{{ published }} paquets publiés : tico n'en affiche que {{ tico_max }} par dépôt. Donnez plutôt les
+  adresses par console (une par rayon, {{ tico_max }} paquets au plus) listées sur la page
+  <a href="/add#rayons">Ajouter à tico</a>.</p>
+{% endif %}
 <section class="card">
 <table class="table">
   <thead><tr><th></th><th>Paquet</th><th>Catégorie</th><th>Version</th><th>Taille</th><th>Téléch.</th><th>État</th></tr></thead>

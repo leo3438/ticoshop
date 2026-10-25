@@ -3,7 +3,6 @@ import io
 from datetime import datetime, timezone
 from email.utils import format_datetime
 from pathlib import Path
-from typing import Any
 from urllib.parse import urlencode
 from xml.sax.saxutils import escape
 
@@ -12,9 +11,19 @@ import qrcode.image.svg
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 
-from . import covers, diagnostic
+from . import diagnostic, shelves
 from .context import APP_DIR, Context
 from .index import package_download_url, release_download_url
+from .shelves import (
+    SORTS,
+    console_counts,
+    console_label,
+    consoles_of,
+    group_by_console,
+    main_console,
+    shelf_label,
+    sort_packages,
+)
 
 
 def qr_svg(text: str) -> Response:
@@ -22,54 +31,6 @@ def qr_svg(text: str) -> Response:
     buf = io.BytesIO()
     img.save(buf)
     return Response(buf.getvalue(), media_type="image/svg+xml")
-
-
-SORTS = ("console", "name", "recent", "popular")
-
-
-def console_label(slug: str) -> str:
-    return covers.CONSOLES[slug][0] if slug in covers.CONSOLES else slug.upper()
-
-
-def consoles_of(pkg: dict[str, Any]) -> list[str]:
-    """Consoles d'un paquet : celle du jeu, sinon les tags de console (ex. module émulateur)."""
-    found = [pkg["console"]] if pkg.get("console") else []
-    return found + [t for t in pkg["tags"] if t in covers.CONSOLES and t not in found]
-
-
-def main_console(pkg: dict[str, Any]) -> str:
-    return (consoles_of(pkg) or [""])[0]
-
-
-def console_counts(packages: list[dict[str, Any]]) -> list[tuple[str, str, int]]:
-    """[(slug, nom, nombre de paquets)], dans l'ordre de la liste des consoles."""
-    counts: dict[str, int] = {}
-    for p in packages:
-        for slug in consoles_of(p):
-            counts[slug] = counts.get(slug, 0) + 1
-    order = list(covers.CONSOLES)
-    ranked = sorted(counts, key=lambda s: order.index(s) if s in order else len(order))
-    return [(s, console_label(s), counts[s]) for s in ranked]
-
-
-def sort_packages(packages: list[dict[str, Any]], sort: str) -> list[dict[str, Any]]:
-    by_name = sorted(packages, key=lambda p: p["name"].casefold())
-    if sort == "recent":
-        return sorted(by_name, key=lambda p: p["updated_at"], reverse=True)
-    if sort == "popular":
-        return sorted(by_name, key=lambda p: p["downloads"], reverse=True)
-    return sorted(by_name, key=lambda p: not p["featured"])
-
-
-def group_by_console(packages: list[dict[str, Any]]) -> list[tuple[str, list[dict[str, Any]]]]:
-    """Un rayon par console (jeux uniquement), puis le reste ; slug "" = autres paquets."""
-    groups: dict[str, list[dict[str, Any]]] = {}
-    for p in packages:
-        slug = main_console(p) if p["category"] == "game" else ""
-        groups.setdefault(slug, []).append(p)
-    order = list(covers.CONSOLES)
-    keys = sorted((k for k in groups if k), key=lambda s: order.index(s) if s in order else len(order))
-    return [(k, groups[k]) for k in keys] + ([("", groups[""])] if "" in groups else [])
 
 
 def register(app: FastAPI, ctx: Context) -> None:
@@ -115,7 +76,10 @@ def register(app: FastAPI, ctx: Context) -> None:
 
     @app.get("/add", include_in_schema=False)
     def add_page(request: Request):
-        return ctx.render(request, "add.html", public=True)
+        base = ctx.base_url(request)
+        parts = [(shelf, len(items), f"{base}/r/{shelf}/index.json") for shelf, items in ctx.shelves(request).items()]
+        return ctx.render(request, "add.html", public=True, shelves=parts, total=sum(n for _, n, _ in parts),
+                          tico_max=shelves.TICO_MAX_PACKAGES, shelf_label=shelf_label)
 
     @app.get("/index.json", tags=["tico"])
     @app.get("/t", include_in_schema=False)  # alias court, plus rapide à taper sur la Switch
@@ -124,9 +88,19 @@ def register(app: FastAPI, ctx: Context) -> None:
             db.bump("index")
         return JSONResponse(ctx.current_index(request), headers={"Cache-Control": "no-cache"})
 
+    @app.get("/r/{shelf}/index.json", tags=["tico"])
+    def shelf_index(request: Request, shelf: str):
+        """Dépôt d'un seul rayon : tico n'affiche que 400 paquets par dépôt."""
+        index = ctx.current_index(request, shelf)
+        if not request.session.get("admin"):
+            db.bump("index")
+        return JSONResponse(index, headers={"Cache-Control": "no-cache"})
+
     @app.get("/qr.svg", include_in_schema=False)
-    def qr(request: Request, target: str = "index"):
+    def qr(request: Request, target: str = "index", shelf: str = ""):
         url = f"{ctx.base_url(request)}/diag/index.json" if target == "diag" else ctx.index_url(request)
+        if shelf and shelf in ctx.shelves(request):
+            url = f"{ctx.base_url(request)}/r/{shelf}/index.json"
         return qr_svg(url)
 
     @app.get("/add-to-switch.sh", include_in_schema=False)

@@ -10,7 +10,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from starlette.datastructures import UploadFile as StarletteUpload
 
-from . import backup, github, storage
+from . import backup, github, shelves, storage
 from .context import Context
 from .index import validate_package
 from .security import hash_password
@@ -60,7 +60,9 @@ def register(app: FastAPI, ctx: Context) -> None:
     def dashboard(request: Request):
         packages = db.list_packages()
         problems = {p["id"]: validate_package(p, settings.files_dir) for p in packages}
-        return ctx.render(request, "admin/dashboard.html", packages=packages, problems=problems)
+        published = sum(len(items) for items in ctx.shelves(request).values())
+        return ctx.render(request, "admin/dashboard.html", packages=packages, problems=problems,
+                          published=published, tico_max=shelves.TICO_MAX_PACKAGES)
 
     @app.get("/admin/repo", include_in_schema=False, dependencies=admin)
     def repo_form(request: Request):
