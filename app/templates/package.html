@@ -9,7 +9,7 @@
       <h1>{{ pkg.name }}</h1>
       {% if pkg.tagline %}<p class="tagline">{{ pkg.tagline }}</p>{% endif %}
       <p class="muted">
-        {{ t('cat.' ~ pkg.category) }}
+        {% if console %}<span class="badge">{{ console }}</span> {% endif %}{{ t('cat.' ~ pkg.category) }}
         {% if pkg.version %} · v{{ pkg.version }}{% endif %}
         {% if pkg.author %} · {{ t('pkg.by') }} {{ pkg.author }}{% endif %}
         {% if pkg.size %} · {{ pkg.size|filesize }}{% endif %}

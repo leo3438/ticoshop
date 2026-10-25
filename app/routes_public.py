@@ -3,6 +3,8 @@ import io
 from datetime import datetime, timezone
 from email.utils import format_datetime
 from pathlib import Path
+from typing import Any
+from urllib.parse import urlencode
 from xml.sax.saxutils import escape
 
 import qrcode
@@ -10,7 +12,7 @@ import qrcode.image.svg
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 
-from . import diagnostic
+from . import covers, diagnostic
 from .context import APP_DIR, Context
 from .index import package_download_url, release_download_url
 
@@ -22,21 +24,80 @@ def qr_svg(text: str) -> Response:
     return Response(buf.getvalue(), media_type="image/svg+xml")
 
 
+SORTS = ("console", "name", "recent", "popular")
+
+
+def console_label(slug: str) -> str:
+    return covers.CONSOLES[slug][0] if slug in covers.CONSOLES else slug.upper()
+
+
+def consoles_of(pkg: dict[str, Any]) -> list[str]:
+    """Consoles d'un paquet : celle du jeu, sinon les tags de console (ex. module émulateur)."""
+    found = [pkg["console"]] if pkg.get("console") else []
+    return found + [t for t in pkg["tags"] if t in covers.CONSOLES and t not in found]
+
+
+def main_console(pkg: dict[str, Any]) -> str:
+    return (consoles_of(pkg) or [""])[0]
+
+
+def console_counts(packages: list[dict[str, Any]]) -> list[tuple[str, str, int]]:
+    """[(slug, nom, nombre de paquets)], dans l'ordre de la liste des consoles."""
+    counts: dict[str, int] = {}
+    for p in packages:
+        for slug in consoles_of(p):
+            counts[slug] = counts.get(slug, 0) + 1
+    order = list(covers.CONSOLES)
+    ranked = sorted(counts, key=lambda s: order.index(s) if s in order else len(order))
+    return [(s, console_label(s), counts[s]) for s in ranked]
+
+
+def sort_packages(packages: list[dict[str, Any]], sort: str) -> list[dict[str, Any]]:
+    by_name = sorted(packages, key=lambda p: p["name"].casefold())
+    if sort == "recent":
+        return sorted(by_name, key=lambda p: p["updated_at"], reverse=True)
+    if sort == "popular":
+        return sorted(by_name, key=lambda p: p["downloads"], reverse=True)
+    return sorted(by_name, key=lambda p: not p["featured"])
+
+
+def group_by_console(packages: list[dict[str, Any]]) -> list[tuple[str, list[dict[str, Any]]]]:
+    """Un rayon par console (jeux uniquement), puis le reste ; slug "" = autres paquets."""
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for p in packages:
+        slug = main_console(p) if p["category"] == "game" else ""
+        groups.setdefault(slug, []).append(p)
+    order = list(covers.CONSOLES)
+    keys = sorted((k for k in groups if k), key=lambda s: order.index(s) if s in order else len(order))
+    return [(k, groups[k]) for k in keys] + ([("", groups[""])] if "" in groups else [])
+
+
 def register(app: FastAPI, ctx: Context) -> None:
     db = ctx.db
 
     @app.get("/", include_in_schema=False)
-    def storefront(request: Request, q: str = "", category: str = ""):
+    def storefront(request: Request, q: str = "", category: str = "", console: str = "", sort: str = ""):
         published = db.list_packages(published_only=True)
-        packages = published
-        if category:
-            packages = [p for p in packages if p["category"] == category]
+        sort = sort if sort in SORTS else "console"
+        packages = [p for p in published if not category or p["category"] == category]
+        consoles = console_counts(packages)
+        if console:
+            packages = [p for p in packages if console in consoles_of(p)]
         if q:
             ql = q.lower()
             packages = [p for p in packages if ql in f"{p['name']} {p['tagline']} {' '.join(p['tags'])}".lower()]
-        used = sorted({p["category"] for p in published})
-        return ctx.render(request, "store.html", public=True, packages=packages, q=q, category=category,
-                          used_categories=used)
+        packages = sort_packages(packages, sort)
+        groups = group_by_console(packages) if sort == "console" and not console else []
+        params = {"q": q, "category": category, "console": console, "sort": sort if sort != "console" else ""}
+
+        def link(**changes: str) -> str:
+            query = {k: v for k, v in {**params, **changes}.items() if v}
+            return "?" + urlencode(query) if query else "/"
+
+        return ctx.render(request, "store.html", public=True, packages=packages, groups=groups, q=q,
+                          category=category, console=console, sort=sort, sorts=SORTS, consoles=consoles,
+                          used_categories=sorted({p["category"] for p in published}),
+                          console_label=console_label, main_console=main_console, link=link)
 
     @app.get("/p/{pkg_id}", include_in_schema=False)
     def package_page(request: Request, pkg_id: str):
@@ -47,8 +108,10 @@ def register(app: FastAPI, ctx: Context) -> None:
         releases = [
             {**r, "download": release_download_url(base, pkg_id, r)} for r in db.list_releases(pkg_id)
         ]
+        console = main_console(pkg)
         return ctx.render(request, "package.html", public=True, pkg=pkg,
-                          download=package_download_url(base, pkg), releases=releases)
+                          download=package_download_url(base, pkg), releases=releases,
+                          console=console_label(console) if console else "")
 
     @app.get("/add", include_in_schema=False)
     def add_page(request: Request):

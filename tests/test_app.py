@@ -807,3 +807,23 @@ def test_import_from_link_renames_rom(client, tmp_path, monkeypatch):
     assert r.status_code == 502 and "Téléchargement impossible" in r.json()["detail"]
     assert client.get("/api/packages/mort", headers=auth()).json()["source"] == "url"
     assert not list((tmp_path / "files").rglob(".download-*"))
+
+
+def test_storefront_console_filter_and_shelves(client):
+    for pid, name, console, tags in [("zelda", "Zelda DX", "gbc", []), ("tetris", "Tetris", "gb", []),
+                                     ("hermano", "Hermano", "gb", []), ("gambatte", "Gambatte", "", ["emulator", "gb"])]:
+        r = client.post("/api/packages", headers=auth(), json={
+            "id": pid, "name": name, "category": "app" if pid == "gambatte" else "game", "console": console,
+            "tags": tags, "source": "url", "url": f"https://example.com/{pid}.zip"})
+        assert r.status_code in (200, 201), r.text
+    page = client.get("/").text
+    # Rayons dans l'ordre des consoles, puis les applications
+    assert page.index(">Game Boy</a>") < page.index(">Game Boy Color</a>") < page.index("Applications et autres")
+    assert 'href="?console=gb">Game Boy <span class="count">3</span>' in page  # 2 jeux + l'émulateur
+    gb = client.get("/?console=gb").text
+    assert "Hermano" in gb and "Gambatte" in gb and "Zelda DX" not in gb
+    assert "3 résultat(s)" in gb
+    games = client.get("/?category=game&console=gb&sort=name").text
+    assert games.index("Hermano") < games.index("Tetris") and "Gambatte" not in games
+    assert "Aucun résultat." in client.get("/?q=mario").text
+    assert "Game Boy Color" in client.get("/p/zelda").text
